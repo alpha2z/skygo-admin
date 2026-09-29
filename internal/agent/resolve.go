@@ -24,6 +24,9 @@ func (a *Agent) ResolveFailed(id string) error {
 		return errors.New("stop the agent before operator resolution")
 	}
 	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if _, err := os.Stat(filepath.Join(a.cfg.StateDir, id+".unit.json")); !os.IsNotExist(err) {
+		return errors.New("recovery units require verified reconciliation of both members")
+	}
 	path := filepath.Join(a.cfg.StateDir, id+".json")
 	b, err := os.ReadFile(path)
 	if err != nil {

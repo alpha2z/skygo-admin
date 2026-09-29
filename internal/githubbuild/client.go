@@ -19,6 +19,7 @@ import (
 )
 
 type Config struct {
+	AutoRegister  bool     `json:"auto_register,omitempty"`
 	PublishImages bool     `json:"publish_images,omitempty"`
 	Repository    string   `json:"repository"`
 	Workflow      string   `json:"workflow"`
@@ -148,27 +149,41 @@ type Run struct {
 	HTMLURL    string    `json:"html_url"`
 }
 
-func (c *Client) Runs(ctx context.Context) ([]Run, error) {
-	var response struct {
-		Runs []Run `json:"workflow_runs"`
-	}
-	if err := c.request(ctx, "GET", c.path("/runs?per_page=30"), nil, &response); err != nil {
-		return nil, err
-	}
+func (c *Client) Runs(ctx context.Context) ([]Run, error) { return c.runs(ctx, 1) }
+
+// SyncRuns bounds discovery to the latest 150 runs.
+func (c *Client) SyncRuns(ctx context.Context) ([]Run, error) { return c.runs(ctx, 5) }
+func (c *Client) runs(ctx context.Context, pages int) ([]Run, error) {
 	runs := []Run{}
-	for _, run := range response.Runs {
-		allowed := false
-		for _, ref := range c.config.AllowedRefs {
-			if run.Ref == ref {
-				allowed = true
+	for page := 1; page <= pages; page++ {
+		var response struct {
+			Runs []Run `json:"workflow_runs"`
+		}
+		if err := c.request(ctx, "GET", c.path("/runs?per_page=30"+func() string {
+			if page == 1 {
+				return ""
 			}
+			return "&page=" + jsonNumber(int64(page))
+		}()), nil, &response); err != nil {
+			return nil, err
 		}
-		if !allowed || run.ID <= 0 {
-			continue
+		for _, run := range response.Runs {
+			allowed := false
+			for _, ref := range c.config.AllowedRefs {
+				if run.Ref == ref {
+					allowed = true
+				}
+			}
+			if !allowed || run.ID <= 0 {
+				continue
+			}
+			// Build links locally rather than trusting API-provided arbitrary URLs.
+			run.HTMLURL = "https://github.com/" + c.config.Repository + "/actions/runs/" + url.PathEscape(jsonNumber(run.ID))
+			runs = append(runs, run)
 		}
-		// Build links locally rather than trusting API-provided arbitrary URLs.
-		run.HTMLURL = "https://github.com/" + c.config.Repository + "/actions/runs/" + url.PathEscape(jsonNumber(run.ID))
-		runs = append(runs, run)
+		if len(response.Runs) < 30 {
+			break
+		}
 	}
 	return runs, nil
 }

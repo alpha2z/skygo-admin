@@ -63,7 +63,7 @@ func (s *Server) trustedRelease(tx *gorm.DB, id string) (release.Manifest, error
 	}
 	return manifest, nil
 }
-func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.Time) (prepareGroup, error) {
+func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.Time, selected ...string) (prepareGroup, error) {
 	g := prepareGroup{HostID: h.ID, ReleaseID: m.ID, Status: "unprepared", Targets: []prepareTarget{}}
 	block := func(code string) (prepareGroup, error) {
 		g.Status = "blocked"
@@ -102,6 +102,15 @@ func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.
 		if !ok {
 			return block("ADMIN_TARGET_MISSING")
 		}
+		if len(selected) > 0 {
+			match := false
+			for _, id := range selected {
+				match = match || id == def.ID
+			}
+			if !match {
+				continue
+			}
+		}
 		var seen *control.Observation
 		for i := range observations {
 			if observations[i].Service == def.ID {
@@ -135,6 +144,9 @@ func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.
 			return block("ADMIN_PAIR_MISSING")
 		}
 		g.Targets = append(g.Targets, prepareTarget{Service: def.ID, Kind: kind, Image: image.Reference, Platform: platform, CurrentImage: seen.Image, Status: "unprepared"})
+	}
+	if len(selected) > 0 && len(g.Targets) != len(selected) {
+		return block("ADMIN_TARGET_MISSING")
 	}
 	identity := []string{m.ID, h.ID}
 	for _, t := range g.Targets {
@@ -186,7 +198,7 @@ func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.
 		}
 	}
 	switch {
-	case ready == 2:
+	case ready == len(g.Targets) && ready > 0:
 		g.Status = "ready"
 		g.Reason = "Both images are prepared; services have not been upgraded."
 	case busy > 0:

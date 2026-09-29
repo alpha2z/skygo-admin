@@ -16,6 +16,9 @@ func (s *Server) expireTasks(ctx context.Context) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&lock, 1).Error; err != nil {
 			return err
 		}
+		if err := tx.Model(&Publication{}).Where("status = ? AND expires_at <= ?", "pending", time.Now().UTC()).Update("status", "expired").Error; err != nil {
+			return err
+		}
 		var tasks []Task
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("status IN ? AND expires_at <= ?", []string{"pending", "queued", "dispatched"}, time.Now().UTC()).Limit(200).Find(&tasks).Error; err != nil {
 			return err
@@ -28,6 +31,9 @@ func (s *Server) expireTasks(ctx context.Context) error {
 				if err := tx.Model(&ServiceRecord{}).Where("id = ? AND busy_task = ?", task.ServiceID, task.ID).Update("busy_task", "").Error; err != nil {
 					return err
 				}
+			}
+			if err := s.publicationState(tx, task, task.Status, "EXECUTION_EXPIRED"); err != nil {
+				return err
 			}
 			if err := tx.Save(&task).Error; err != nil {
 				return err

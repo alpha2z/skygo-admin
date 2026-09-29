@@ -84,3 +84,5 @@ make release
 - [第三方依赖许可清单](docs/dependencies.md)
 
 采用 Apache-2.0，保留适用的第三方许可证与署名。
+
+API/Web 自升级使用[选择式发布与 schema v3](docs/publications.md)，先显式准备镜像，再独立审批；首次 schema 升级使用手动维护流程。

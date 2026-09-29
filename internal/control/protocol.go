@@ -29,6 +29,7 @@ type Service struct {
 	ControlPlane bool     `json:"control_plane"`
 }
 type Command struct {
+	Unit       *UnitPlan       `json:"unit,omitempty"`
 	Platform   string          `json:"platform,omitempty"`
 	Version    int             `json:"version"`
 	ID         string          `json:"id"`
@@ -45,24 +46,29 @@ type Envelope struct {
 	Signature []byte          `json:"signature"`
 }
 type Result struct {
-	ImageID    string `json:"image_id,omitempty"`
-	Platform   string `json:"platform,omitempty"`
-	Logs       string `json:"logs,omitempty"`
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	Code       string `json:"code"`
-	Image      string `json:"image,omitempty"`
-	Healthy    bool   `json:"healthy"`
-	ConfigHash string `json:"config_hash,omitempty"`
+	Unit       []UnitProof `json:"unit,omitempty"`
+	ImageID    string      `json:"image_id,omitempty"`
+	Platform   string      `json:"platform,omitempty"`
+	Logs       string      `json:"logs,omitempty"`
+	ID         string      `json:"id"`
+	Status     string      `json:"status"`
+	Code       string      `json:"code"`
+	Image      string      `json:"image,omitempty"`
+	Healthy    bool        `json:"healthy"`
+	ConfigHash string      `json:"config_hash,omitempty"`
 }
 type Observation struct {
-	ImageID      string   `json:"image_id,omitempty"`
-	Platform     string   `json:"platform,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty"`
-	Service      string   `json:"service"`
-	Image        string   `json:"image"`
-	Healthy      bool     `json:"healthy"`
-	ConfigHash   string   `json:"config_hash,omitempty"`
+	Running           bool     `json:"running"`
+	UnitID            string   `json:"unit_id,omitempty"`
+	ControlKind       string   `json:"control_kind,omitempty"`
+	InventoryRevision string   `json:"inventory_revision,omitempty"`
+	ImageID           string   `json:"image_id,omitempty"`
+	Platform          string   `json:"platform,omitempty"`
+	Capabilities      []string `json:"capabilities,omitempty"`
+	Service           string   `json:"service"`
+	Image             string   `json:"image"`
+	Healthy           bool     `json:"healthy"`
+	ConfigHash        string   `json:"config_hash,omitempty"`
 }
 type Heartbeat struct {
 	Version      int           `json:"version"`
@@ -78,7 +84,15 @@ func (c Command) Validate() error {
 	if c.Action != "prepare-image" && c.Platform != "" {
 		return errors.New("unexpected platform")
 	}
+	if c.Action != "control-unit" && c.Unit != nil {
+		return errors.New("unexpected unit")
+	}
 	switch c.Action {
+	case "control-unit":
+		if c.Image != "" || len(c.Config) > 0 || c.ConfigHash != "" || c.Unit == nil {
+			return errors.New("invalid unit payload")
+		}
+		return c.Unit.Validate(c.Service)
 	case "start", "stop", "restart", "health", "logs":
 		if c.Image != "" || len(c.Config) > 0 {
 			return errors.New("unexpected action payload")

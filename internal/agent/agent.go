@@ -36,6 +36,7 @@ type LocalService struct {
 	AllowLogs      bool     `json:"allow_logs"`
 }
 type Config struct {
+	ControlUnit       *LocalUnit     `json:"control_unit,omitempty"`
 	HostID            string         `json:"host_id"`
 	APIURL            string         `json:"api_url"`
 	TokenFile         string         `json:"token_file"`
@@ -54,6 +55,7 @@ type receipt struct {
 	Result  control.Result  `json:"result"`
 }
 type Agent struct {
+	boot   string
 	cfg    Config
 	key    ed25519.PublicKey
 	token  string
@@ -109,10 +111,13 @@ func New(c Config, d Driver) (*Agent, error) {
 		}
 		seen[s.ID] = true
 	}
+	if err := validateLocalUnit(c); err != nil {
+		return nil, err
+	}
 	if err = os.MkdirAll(c.StateDir, 0700); err != nil {
 		return nil, err
 	}
-	return &Agent{cfg: c, key: key, token: token, driver: d, client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Agent{boot: "b" + control.Digest([]byte(time.Now().String()))[:32], cfg: c, key: key, token: token, driver: d, client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (a *Agent) Start(parent context.Context) error {
 	f, err := os.OpenFile(filepath.Join(a.cfg.StateDir, "agent.lock"), os.O_CREATE|os.O_RDWR, 0600)
@@ -173,7 +178,7 @@ func (a *Agent) request(ctx context.Context, method, path string, body, out any)
 	return nil
 }
 func (a *Agent) run(ctx context.Context) {
-	boot := "b" + control.Digest([]byte(time.Now().String()))[:32]
+	boot := a.boot
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)
@@ -184,6 +189,7 @@ func (a *Agent) run(ctx context.Context) {
 				o, err := a.driver.Observe(c, s)
 				cancel()
 				if err == nil {
+					a.decorateUnit(s, &o)
 					observations = append(observations, o)
 				}
 			}
@@ -196,6 +202,7 @@ func (a *Agent) run(ctx context.Context) {
 		}
 	}()
 	defer func() { <-heartbeatDone }()
+	a.recoverUnits(ctx)
 	for {
 		var commands []control.Envelope
 		if a.request(ctx, "GET", "/commands", nil, &commands) == nil {
@@ -226,6 +233,9 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 	cmd, err := control.Verify(e, a.key, a.cfg.HostID)
 	if err != nil {
 		return control.Result{Status: "failed", Code: "COMMAND_REJECTED"}
+	}
+	if cmd.Action == "control-unit" {
+		return a.handleUnit(ctx, e, cmd)
 	}
 	result := control.Result{ID: cmd.ID, Status: "failed", Code: "COMMAND_REJECTED"}
 	var service LocalService

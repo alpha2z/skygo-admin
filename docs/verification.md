@@ -69,3 +69,45 @@ The Browser connection was unavailable, so interactive browser verification is
 not claimed for this update. Live GitHub publication/registration and production
 Registry credentials were not used; provider transport tests and the disposable
 registry provide local evidence only. See [migration and release workflow](releases.md).
+
+## Selective publications — schema v3, 2026-09-30
+
+Passed locally:
+
+- `make test`: full Go suite, internal race suite and nine frontend tests.
+- `go vet ./...` and `git diff --check`.
+- Disposable MySQL race suite: physical v2 table/column migration preserving a
+  legacy receipt; concurrent request identity; independent approval; expired
+  preparation; configuration drift at approval and first dispatch; rejected and
+  expired publications; strict client payload; controller restart; duplicate
+  results; one execution task; locks retained for uncertain execution and released
+  only after both member proofs. Automatic registration tests cover default-off,
+  three-artifact budget, bounded exponential retry, system audit and unknown reads.
+- Real Docker, Linux arm64: cold-cache preparation leaves containers/configuration
+  unchanged; API-only replacement restarts the unchanged-image companion; pair
+  replacement; HTTP health failure restores both original images; durable startup
+  recovery with an unreachable controller; terminal replay does not restart again.
+  Recovery-unit services are synthetic nodes, with no production data or topology.
+- Standard API/Web/Agent image builds using the independent Docker context and
+  pinned public module. The final API/Web images served every HTML JS/CSS reference;
+  absent JS/CSS returned 404. The fixture changes only the API process UID to read
+  its generated private files; it does not mount source assets into final images.
+
+Browser discovery returned no connected browser. Desktop/mobile rendering, live
+browser disconnect/re-login interactions and runtime module-failure presentation
+remain **unverified**. Frontend helper and static-asset tests do not replace that
+visual acceptance. Live GitHub signing/registration, production SMTP and Registry
+credentials, actual production self-upgrade, and amd64 container execution were
+not exercised. Linux amd64 binaries are cross-built, not runtime-tested here.
+
+The local release outputs are an allowlisted source archive, per-file source
+manifest, four Linux service binaries, three arm64 image archives and checksums.
+See `dist/source-manifest.json` for the exact source list and
+`dist/image-manifest.json` for exported image identities. Run `make release` before
+`python3 scripts/export-images.py v3-review` to regenerate the complete set.
+
+Source/history policy scans and redacted Gitleaks checks complement review of the
+new API contract, local-only configuration and synthetic test fixtures. No private
+source history, deployment credential, business protocol or gameplay data was
+copied. Scans report locations/categories and never matching secret values;
+passing scans is not a mathematical guarantee that all sensitive content is absent.

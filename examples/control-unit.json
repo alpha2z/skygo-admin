@@ -1,0 +1,12 @@
+{
+  "host_id": "control-host",
+  "api_url": "https://admin.example.com",
+  "token_file": "/etc/skygo-admin/private/host-token",
+  "public_key_file": "/etc/skygo-admin/signing.pub",
+  "state_dir": "/var/lib/skygo-admin/agent",
+  "control_unit": {"id": "admin", "api": "api", "web": "web"},
+  "services": [
+    {"id": "api", "compose_file": "/etc/skygo-admin/compose.yaml", "env_file": "/etc/skygo-admin/private/compose.env", "project": "admin", "compose_service": "api", "image_variable": "ADMIN_API_IMAGE", "allowed_images": ["ghcr.io/example/tooling/admin-api"], "health_url": "http://127.0.0.1:18391/healthz"},
+    {"id": "web", "compose_file": "/etc/skygo-admin/compose.yaml", "env_file": "/etc/skygo-admin/private/compose.env", "project": "admin", "compose_service": "web", "image_variable": "ADMIN_WEB_IMAGE", "allowed_images": ["ghcr.io/example/tooling/admin-web"], "health_url": "http://127.0.0.1:8080/"}
+  ]
+}

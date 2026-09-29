@@ -54,7 +54,7 @@ An agent inventory is required; it controls Compose files, service names, image
 repositories, health probes, configuration paths and log access. The API cannot
 supply a shell command, mount path or arbitrary health URL.
 
-See [release workflow and schema v2 migration](docs/releases.md) before upgrading an existing installation.
+See [publication workflow and schema v3 migration](docs/publications.md) before upgrading an existing installation.
 
 ## Operations
 

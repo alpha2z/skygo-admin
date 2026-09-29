@@ -31,6 +31,7 @@ type claims struct {
 type Server struct {
 	maintenanceCancel context.CancelFunc
 	maintenanceDone   chan struct{}
+	autoDone          chan struct{}
 	cfg               Config
 	db                *gorm.DB
 	auth              *casbin.SyncedEnforcer
@@ -57,7 +58,7 @@ func OpenDB(dsn string) (*gorm.DB, error) {
 }
 func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 	var version SchemaVersion
-	if db.First(&version, 1).Error != nil || version.Version != 2 {
+	if db.First(&version, 1).Error != nil || version.Version != 3 {
 		return nil, errors.New("run admin-api -migrate before starting")
 	}
 	m, err := model.NewModelFromString(casbinModel)
@@ -108,6 +109,8 @@ func (s *Server) Start(context.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.maintenanceCancel = cancel
 	s.maintenanceDone = make(chan struct{})
+	s.autoDone = make(chan struct{})
+	go func() { defer close(s.autoDone); s.autoRegisterLoop(ctx) }()
 	go func() {
 		defer close(s.maintenanceDone)
 		ticker := time.NewTicker(5 * time.Second)
@@ -130,6 +133,13 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.maintenanceCancel()
 		select {
 		case <-s.maintenanceDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if s.autoDone != nil {
+		select {
+		case <-s.autoDone:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -199,6 +209,13 @@ func (s *Server) Router() *gin.Engine {
 	a.POST("/builds/:id/register", s.require("build.write"), s.registerBuild)
 	a.GET("/releases/:id/admin-preparation", s.require("ops.read"), s.require("build.read"), s.adminPreparation)
 	a.POST("/releases/:id/prepare-admin", s.require("ops.write"), s.require("build.read"), s.prepareAdminImages)
+	a.GET("/publication-candidates", s.require("ops.read"), s.require("build.read"), s.publicationCandidates)
+	a.POST("/publication-preparation", s.require("ops.write"), s.require("build.read"), s.prepareSelection)
+	a.GET("/publications", s.require("ops.read"), s.publications)
+	a.GET("/publications/:id", s.require("ops.read"), s.publicationDetail)
+	a.POST("/publications", s.require("ops.write"), s.require("build.read"), s.createPublication)
+	a.POST("/publications/:id/approve", s.require("ops.approve"), s.approvePublication)
+	a.POST("/publications/:id/reject", s.require("ops.approve"), s.rejectPublication)
 	a.GET("/builds", s.require("build.read"), s.builds)
 	a.POST("/builds", s.require("build.write"), s.dispatchBuild)
 	agents := r.Group("/agent/v1", s.agentAuth())
@@ -206,6 +223,7 @@ func (s *Server) Router() *gin.Engine {
 	agents.GET("/commands", s.commands)
 	agents.POST("/results", s.result)
 	r.StaticFile("/", s.cfg.WebRoot+"/index.html")
+	r.StaticFile("/publications.js", s.cfg.WebRoot+"/publications.js")
 	r.StaticFile("/releases.js", s.cfg.WebRoot+"/releases.js")
 	r.StaticFile("/app.js", s.cfg.WebRoot+"/app.js")
 	r.StaticFile("/styles.css", s.cfg.WebRoot+"/styles.css")

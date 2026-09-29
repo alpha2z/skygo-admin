@@ -34,3 +34,6 @@ jobs:
           docker build -f deploy/Dockerfile.agent -t skygo-admin/ops-agent:ci .
       - name: Container and Skygo integration
         run: python3 scripts/docker-smoke.py
+        env:
+          SKYGO_ADMIN_API_IMAGE: skygo-admin/admin-api:ci
+          SKYGO_ADMIN_WEB_IMAGE: skygo-admin/admin-web:ci

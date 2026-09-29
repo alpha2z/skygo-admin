@@ -105,6 +105,7 @@ func (Docker) Observe(ctx context.Context, s LocalService) (control.Observation,
 			o.Capabilities = []string{"image.prepare.v1"}
 		}
 	}
+	o.Running = state.State.Running
 	o.Healthy = state.State.Running
 	if state.State.Health != nil {
 		o.Healthy = o.Healthy && state.State.Health.Status == "healthy"

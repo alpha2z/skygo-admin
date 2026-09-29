@@ -264,34 +264,7 @@ func (s *Server) registerBuild(c *gin.Context) {
 		return
 	}
 	s.change(c, body, "build.register", fmt.Sprintf("ci-%d-%d", id, req.Attempt), func(tx *gorm.DB) (any, error) {
-		keys, err := s.buildKeys(tx)
-		if err != nil {
-			return nil, err
-		}
-		manifest, err := release.Verify(artifact.Release, keys)
-		if err != nil {
-			return nil, releaseFailure("BUILD_SIGNATURE_UNTRUSTED")
-		}
-		if artifact.Run.ID != id || artifact.Run.Attempt != req.Attempt || artifact.Attempt != req.Attempt || !artifact.Matches(manifest, s.github.Config()) {
-			return nil, releaseFailure("BUILD_PROVENANCE_MISMATCH")
-		}
-		raw, _ := json.Marshal(artifact.Release)
-		var existing ImageRelease
-		err = tx.First(&existing, "id = ?", manifest.ID).Error
-		if err == nil {
-			if existing.Payload != string(raw) {
-				return nil, releaseFailure("REGISTRATION_CONTENT_CONFLICT")
-			}
-			return unchangedMutation{gin.H{"release_id": manifest.ID, "already_registered": true}}, nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, releaseFailure("REGISTRATION_STATUS_UNAVAILABLE")
-		}
-		row := ImageRelease{ID: manifest.ID, Payload: string(raw), CreatedAt: time.Now().UTC()}
-		if tx.Create(&row).Error != nil {
-			return nil, releaseFailure("REGISTRATION_STATUS_UNAVAILABLE")
-		}
-		return gin.H{"release_id": manifest.ID, "already_registered": false}, nil
+		return s.persistBuild(tx, artifact, id, req.Attempt)
 	})
 }
 func (s *Server) releaseList(c *gin.Context) {
@@ -370,4 +343,35 @@ func (s *Server) releaseDetail(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"id": row.ID, "created_at": row.CreatedAt, "manifest": manifest})
+}
+
+func (s *Server) persistBuild(tx *gorm.DB, artifact githubbuild.SignedArtifact, id int64, attempt int) (any, error) {
+	keys, err := s.buildKeys(tx)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := release.Verify(artifact.Release, keys)
+	if err != nil {
+		return nil, releaseFailure("BUILD_SIGNATURE_UNTRUSTED")
+	}
+	if artifact.Run.ID != id || artifact.Run.Attempt != attempt || artifact.Attempt != attempt || !artifact.Matches(manifest, s.github.Config()) {
+		return nil, releaseFailure("BUILD_PROVENANCE_MISMATCH")
+	}
+	raw, _ := json.Marshal(artifact.Release)
+	var existing ImageRelease
+	err = tx.First(&existing, "id = ?", manifest.ID).Error
+	if err == nil {
+		if existing.Payload != string(raw) {
+			return nil, releaseFailure("REGISTRATION_CONTENT_CONFLICT")
+		}
+		return unchangedMutation{gin.H{"release_id": manifest.ID, "already_registered": true}}, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, releaseFailure("REGISTRATION_STATUS_UNAVAILABLE")
+	}
+	row := ImageRelease{ID: manifest.ID, Payload: string(raw), CreatedAt: time.Now().UTC()}
+	if tx.Create(&row).Error != nil {
+		return nil, releaseFailure("REGISTRATION_STATUS_UNAVAILABLE")
+	}
+	return gin.H{"release_id": manifest.ID, "already_registered": false}, nil
 }

@@ -40,6 +40,7 @@ const ReleaseUI = (() => {
       connection.append(el('p', settings.github_configured ? `${settings.github.repository} / ${settings.github.workflow}` : 'GitHub is not configured.'));
       if(settings.github_configured) connection.append(el('p', settings.github_connected ? 'Provider read succeeded.' : settings.github_error || 'Provider status unavailable.'));
       connection.append(el('p', 'Registry credentials remain on each agent. This service does not display tokens or secret-file paths.'));
+      if (settings.github) connection.append(el('p', settings.github.auto_register ? 'Automatic trusted registration enabled; publications still require independent approval.' : 'Automatic trusted registration disabled. Enable auto_register explicitly in local GitHub configuration.'));
       if (settings.github) connection.append(el('p', settings.github.publish_images ? 'Signed image publication is enabled for approved dispatches.' : 'Archive-only build mode. Enable publish_images locally to produce registrable signed images.'));
       root.append(connection);
       const trust = card(`Build signing trust · ${settings.key_count} public keys`);
@@ -119,9 +120,9 @@ const ReleaseUI = (() => {
       }, pending.has(key) || (!uncertain.has(key) && !group.can_prepare)); b.dataset.mutation = key; box.append(b);
       box.append(button('Next: upgrade tasks', () => navigate({tab: 'upgrade'}), group.status !== 'ready'));
     } else {
-      box.append(el('p', 'Prepared images do not authorize an upgrade. Each deployment requires a new task and an independent approver. No configuration or database migration is automatic.'));
+      box.append(el('p', 'Prepared images do not authorize an upgrade. API/Web publications use one recovery unit and an independent approver. No configuration or database migration is automatic.'));
       box.append(button('Prepare / recheck images', () => navigate({tab: 'versions'})));
-      for (const t of group.targets) box.append(button(`Create ${t.kind} upgrade task`, () => ctx.createUpgrade(t.service, t.image), group.status !== 'ready' || !allowed('ops.write')));
+      for (const t of group.targets) box.append(button(`Review ${t.kind} publication`, () => ctx.createUpgrade(t.service, t.image), group.status !== 'ready' || !allowed('ops.write')));
     }
     root.append(box);
   }

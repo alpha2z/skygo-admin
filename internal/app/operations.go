@@ -285,6 +285,11 @@ func (s *Server) approveTask(c *gin.Context) {
 		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&lock, 1).Error != nil {
 			return nil, errConflict
 		}
+		var units int64
+		if tx.Model(&Publication{}).Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).Count(&units).Error != nil || units > 0 {
+			return nil, publicationError("PUBLICATION_BLOCKING", "An active publication holds the control-plane execution gate.")
+		}
+
 		var task Task
 		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&task, "id = ?", c.Param("id")).Error != nil || task.Status != "pending" || task.RequestedBy == uint32(c.GetUint("admin_id")) || !time.Now().Before(task.ExpiresAt) {
 			return nil, errConflict
@@ -562,6 +567,32 @@ func (s *Server) commands(c *gin.Context) {
 			if json.Unmarshal([]byte(t.Payload), &command) != nil {
 				return errConflict
 			}
+			if t.PublicationID != "" && t.Status == "queued" {
+				var p Publication
+				if tx.First(&p, "id = ?", t.PublicationID).Error != nil {
+					return errConflict
+				}
+				err := s.recheckPublication(tx, p)
+				if err != nil || time.Now().After(t.ExpiresAt) {
+					code := "PUBLICATION_EXPIRED"
+					if e, ok := err.(*releaseError); ok {
+						code = e.Code
+					} else if err != nil {
+						code = "SCOPE_INVALID"
+					}
+					t.Status = "failed"
+					if tx.Save(&t).Error != nil {
+						return errConflict
+					}
+					if err := s.publicationState(tx, t, "failed", code); err != nil {
+						return err
+					}
+					if err := s.appendAudit(tx, 0, "publication.dispatch.rejected", p.ID, map[string]string{"code": code}); err != nil {
+						return err
+					}
+					continue
+				}
+			}
 			if time.Now().After(t.ExpiresAt) && t.Status == "queued" {
 				t.Status = "expired"
 				if tx.Save(&t).Error != nil {
@@ -582,6 +613,9 @@ func (s *Server) commands(c *gin.Context) {
 					return errConflict
 				}
 			}
+			if err := s.publicationState(tx, t, t.Status, ""); err != nil {
+				return err
+			}
 			envelopes = append(envelopes, envelope)
 		}
 		return nil
@@ -597,7 +631,7 @@ func (s *Server) result(c *gin.Context) {
 	if _, ok := read(c, &req); !ok {
 		return
 	}
-	if !control.Identifier.MatchString(req.ID) || (req.Status != "succeeded" && req.Status != "failed" && req.Status != "uncertain") || len(req.Code) > 160 || len(req.Logs) > 16384 {
+	if !control.Identifier.MatchString(req.ID) || (req.Status != "succeeded" && req.Status != "failed" && req.Status != "uncertain" && req.Status != "rolled_back") || len(req.Code) > 160 || len(req.Logs) > 16384 {
 		c.Status(400)
 		return
 	}
@@ -611,7 +645,7 @@ func (s *Server) result(c *gin.Context) {
 			return errConflict
 		}
 		raw, _ := json.Marshal(req)
-		if t.Status == "succeeded" || t.Status == "failed" {
+		if t.Status == "succeeded" || t.Status == "failed" || t.Status == "rolled_back" {
 			if t.Result == string(raw) {
 				return nil
 			}
@@ -622,6 +656,13 @@ func (s *Server) result(c *gin.Context) {
 		}
 		var command control.Command
 		if json.Unmarshal([]byte(t.Payload), &command) != nil {
+			return errConflict
+		}
+		if t.Action == "control-unit" {
+			if t.PublicationID == "" || !validUnitResult(command, req) {
+				return errConflict
+			}
+		} else if req.Status == "rolled_back" || len(req.Unit) > 0 {
 			return errConflict
 		}
 		if req.Status == "succeeded" {
@@ -656,6 +697,9 @@ func (s *Server) result(c *gin.Context) {
 			if tx.Model(&ConfigRelease{}).Where("id = ?", t.ConfigVersion).Update("active", true).Error != nil {
 				return errConflict
 			}
+		}
+		if err := s.publicationState(tx, t, t.Status, req.Code); err != nil {
+			return err
 		}
 		return s.appendAudit(tx, 0, "task.result", t.ID, map[string]string{"status": req.Status, "code": req.Code})
 	})
