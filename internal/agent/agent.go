@@ -1,0 +1,317 @@
+// Package agent executes signed operations against an operator-owned inventory.
+package agent
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"github.com/alpha2z/skygo-admin/internal/control"
+	"github.com/alpha2z/skygo-admin/internal/settings"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+type LocalService struct {
+	ID             string   `json:"id"`
+	ComposeFile    string   `json:"compose_file"`
+	EnvFile        string   `json:"env_file"`
+	Project        string   `json:"project"`
+	ComposeService string   `json:"compose_service"`
+	ImageVariable  string   `json:"image_variable"`
+	AllowedImages  []string `json:"allowed_images"`
+	HealthURL      string   `json:"health_url"`
+	ConfigPath     string   `json:"config_path"`
+	SkygoRegistry  bool     `json:"skygo_registry"`
+	AllowLogs      bool     `json:"allow_logs"`
+}
+type Config struct {
+	HostID            string         `json:"host_id"`
+	APIURL            string         `json:"api_url"`
+	TokenFile         string         `json:"token_file"`
+	PublicKeyFile     string         `json:"public_key_file"`
+	StateDir          string         `json:"state_dir"`
+	AllowLoopbackHTTP bool           `json:"allow_loopback_http"`
+	Services          []LocalService `json:"services"`
+}
+type Driver interface {
+	Observe(context.Context, LocalService) (control.Observation, error)
+	Execute(context.Context, LocalService, control.Command) control.Result
+}
+type receipt struct {
+	Digest  string          `json:"digest"`
+	Command control.Command `json:"command"`
+	Result  control.Result  `json:"result"`
+}
+type Agent struct {
+	cfg    Config
+	key    ed25519.PublicKey
+	token  string
+	driver Driver
+	client *http.Client
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	done   chan struct{}
+	lock   *os.File
+}
+
+func New(c Config, d Driver) (*Agent, error) {
+	u, err := url.Parse(c.APIURL)
+	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimRight(u.Path, "/") != "" {
+		return nil, errors.New("invalid API origin")
+	}
+	if u.Scheme != "https" {
+		ip := net.ParseIP(u.Hostname())
+		if u.Scheme != "http" || !c.AllowLoopbackHTTP || ip == nil || !ip.IsLoopback() {
+			return nil, errors.New("HTTPS required")
+		}
+	}
+	if !control.Identifier.MatchString(c.HostID) || !filepath.IsAbs(c.StateDir) {
+		return nil, errors.New("invalid agent identity or state directory")
+	}
+	token, err := settings.Secret(c.TokenFile)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(c.PublicKeyFile)
+	if err != nil {
+		return nil, errors.New("public key unavailable")
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)))
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid public key")
+	}
+	seen := map[string]bool{}
+	for _, s := range c.Services {
+		if !control.Identifier.MatchString(s.ID) || seen[s.ID] || !filepath.IsAbs(s.ComposeFile) || !control.Identifier.MatchString(s.Project) || !control.Identifier.MatchString(s.ComposeService) || !envName(s.ImageVariable) {
+			return nil, errors.New("invalid local service")
+		}
+		if s.EnvFile != "" && !filepath.IsAbs(s.EnvFile) {
+			return nil, errors.New("absolute env file required")
+		}
+		if s.ConfigPath != "" && !filepath.IsAbs(s.ConfigPath) {
+			return nil, errors.New("absolute config path required")
+		}
+		for _, prefix := range s.AllowedImages {
+			if prefix == "" || strings.ContainsAny(prefix, " \t\r\n@") {
+				return nil, errors.New("invalid image allowlist")
+			}
+		}
+		seen[s.ID] = true
+	}
+	if err = os.MkdirAll(c.StateDir, 0700); err != nil {
+		return nil, err
+	}
+	return &Agent{cfg: c, key: key, token: token, driver: d, client: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+}
+func (a *Agent) Start(parent context.Context) error {
+	f, err := os.OpenFile(filepath.Join(a.cfg.StateDir, "agent.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		f.Close()
+		return errors.New("agent already running")
+	}
+	a.lock = f
+	ctx, cancel := context.WithCancel(parent)
+	a.cancel = cancel
+	a.done = make(chan struct{})
+	go func() { defer close(a.done); a.run(ctx) }()
+	return nil
+}
+func (a *Agent) Stop(ctx context.Context) error {
+	if a.cancel == nil {
+		return nil
+	}
+	a.cancel()
+	select {
+	case <-a.done:
+		syscall.Flock(int(a.lock.Fd()), syscall.LOCK_UN)
+		return a.lock.Close()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (a *Agent) request(ctx context.Context, method, path string, body, out any) error {
+	var raw []byte
+	if body != nil {
+		var err error
+		raw, err = json.Marshal(body)
+		if err != nil {
+			return err
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(a.cfg.APIURL, "/")+"/agent/v1"+path, bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+a.token)
+	req.Header.Set("X-Host-ID", a.cfg.HostID)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return errors.New("controller unavailable")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return errors.New("controller rejected request")
+	}
+	if out != nil {
+		return json.NewDecoder(io.LimitReader(resp.Body, 12<<20)).Decode(out)
+	}
+	return nil
+}
+func (a *Agent) run(ctx context.Context) {
+	boot := "b" + control.Digest([]byte(time.Now().String()))[:32]
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		for {
+			observations := []control.Observation{}
+			for _, s := range a.cfg.Services {
+				c, cancel := context.WithTimeout(ctx, 5*time.Second)
+				o, err := a.driver.Observe(c, s)
+				cancel()
+				if err == nil {
+					observations = append(observations, o)
+				}
+			}
+			a.request(ctx, "POST", "/heartbeat", control.Heartbeat{Version: 1, BootID: boot, Observations: observations}, nil)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}()
+	defer func() { <-heartbeatDone }()
+	for {
+		var commands []control.Envelope
+		if a.request(ctx, "GET", "/commands", nil, &commands) == nil {
+			for _, envelope := range commands {
+				if ctx.Err() != nil {
+					return
+				}
+				result := a.Handle(ctx, envelope)
+				if result.ID != "" {
+					a.request(ctx, "POST", "/results", result, nil)
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
+// Handle journals intent before executing. The same signed command can only
+// execute once. A crash is reconciled from observable state or left uncertain.
+func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	cmd, err := control.Verify(e, a.key, a.cfg.HostID)
+	if err != nil {
+		return control.Result{Status: "failed", Code: "COMMAND_REJECTED"}
+	}
+	result := control.Result{ID: cmd.ID, Status: "failed", Code: "COMMAND_REJECTED"}
+	var service LocalService
+	found := false
+	for _, s := range a.cfg.Services {
+		if s.ID == cmd.Service {
+			service = s
+			found = true
+		}
+	}
+	if !found {
+		return result
+	}
+	path := filepath.Join(a.cfg.StateDir, cmd.ID+".json")
+	hash := control.Digest(e.Payload)
+	b, err := os.ReadFile(path)
+	if err == nil {
+		var old receipt
+		if json.Unmarshal(b, &old) != nil || old.Digest != hash {
+			result.Code = "RECEIPT_CONFLICT"
+			return result
+		}
+		if old.Result.Status != "uncertain" {
+			return old.Result
+		}
+		result = a.reconcile(ctx, service, cmd)
+		if result.Status == "succeeded" {
+			old.Result = result
+			if a.save(path, old) != nil {
+				return control.Result{ID: cmd.ID, Status: "uncertain", Code: "JOURNAL_UNAVAILABLE"}
+			}
+		}
+		return result
+	}
+	if !os.IsNotExist(err) {
+		result.Code = "JOURNAL_UNAVAILABLE"
+		return result
+	}
+	if !time.Now().Before(cmd.ExpiresAt) {
+		result.Code = "COMMAND_EXPIRED"
+		return result
+	}
+	rec := receipt{Digest: hash, Command: cmd, Result: control.Result{ID: cmd.ID, Status: "uncertain", Code: "EXECUTION_INTERRUPTED"}}
+	if a.save(path, rec) != nil {
+		result.Code = "JOURNAL_UNAVAILABLE"
+		return result
+	}
+	execution, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	result = a.driver.Execute(execution, service, cmd)
+	result.ID = cmd.ID
+	rec.Result = result
+	if a.save(path, rec) != nil {
+		return control.Result{ID: cmd.ID, Status: "uncertain", Code: "JOURNAL_UNAVAILABLE"}
+	}
+	return result
+}
+func (a *Agent) save(path string, r receipt) error {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	return settings.Atomic(path, b)
+}
+func (a *Agent) reconcile(ctx context.Context, s LocalService, c control.Command) control.Result {
+	r := control.Result{ID: c.ID, Status: "uncertain", Code: "MANUAL_RECONCILIATION_REQUIRED"}
+	o, err := a.driver.Observe(ctx, s)
+	if err != nil {
+		return r
+	}
+	ok := false
+	switch c.Action {
+	case "deploy", "rollback":
+		ok = o.Healthy && o.Image == c.Image
+	case "start":
+		ok = o.Healthy
+	case "configure":
+		ok = o.Healthy && o.ConfigHash == c.ConfigHash
+	case "health":
+		ok = true
+	}
+	if ok {
+		r.Status = "succeeded"
+		r.Code = "RECONCILED"
+		r.Healthy = o.Healthy
+		r.Image = o.Image
+		r.ConfigHash = o.ConfigHash
+	}
+	return r
+}

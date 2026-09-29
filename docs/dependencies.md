@@ -1,0 +1,89 @@
+# Dependency license inventory
+
+Generated from the pinned module graph. License files are identified and hashed;
+this inventory is not a replacement for their terms. The Go toolchain and container
+base images carry additional notices distributed with their respective artifacts.
+
+| Module | Version | License file | SHA-256 |
+|---|---|---|---|
+| `filippo.io/edwards25519` | `v1.1.0` | `LICENSE` | `2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067` |
+| `github.com/alicebob/miniredis/v2` | `v2.38.0` | `LICENSE` | `9964909ed0def8840643886cdc465b063b5978827bac01b886b15a47488064d4` |
+| `github.com/beorn7/perks` | `v1.0.1` | `LICENSE` | `0db7c9ebb3717e526f34f87dd1ee8bc77d36846e29cb0cec9246f7138fbe962b` |
+| `github.com/bmatcuk/doublestar/v4` | `v4.6.1` | `LICENSE` | `2391eb152e1f700051c1618a7aaa7ad86186585190ca9a30e7579c9b9d459332` |
+| `github.com/boombuler/barcode` | `v1.0.1-0.20190219062509-6c824513bacc` | `LICENSE` | `36d2e94c565d51a5146d729e6be6a3d26168d473d97c94011b13700e82c622e4` |
+| `github.com/bytedance/sonic` | `v1.14.0` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/bytedance/sonic/loader` | `v0.3.0` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/casbin/casbin/v2` | `v2.135.0` | `LICENSE` | `b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1` |
+| `github.com/casbin/govaluate` | `v1.3.0` | `LICENSE` | `454316e69743fb6796f1ba5f7ec815a06cbdf21a7a9ee5d2aecdea2e17b03059` |
+| `github.com/cespare/xxhash/v2` | `v2.2.0` | `LICENSE.txt` | `f566a9f97bacdaf00d9f21dd991e81dc11201c4e016c86b470799429a1c9a79c` |
+| `github.com/cloudwego/base64x` | `v0.1.6` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/cloudwego/base64x` | `v0.1.6` | `LICENSE-APACHE` | `69849221bfb90053de2134ef5e6d540287b4b98062326492f1f96f5da685524b` |
+| `github.com/davecgh/go-spew` | `v1.1.1` | `LICENSE` | `1b93a317849ee09d3d7e4f1d20c2b78ddb230b4becb12d7c224c927b9d470251` |
+| `github.com/dgryski/go-rendezvous` | `v0.0.0-20200823014737-9f7001d12a5f` | `LICENSE` | `11f46ac1bc076fc405c06fd087226e5dd87b9c2e6b8dfda5153c79b5b6f01362` |
+| `github.com/francoispqt/gojay` | `v1.2.13` | `LICENSE` | `4e9fc4c749d560e8329be521d0e7c373521b368f96eaeb00d2fedfb5a31f1f2b` |
+| `github.com/gabriel-vasile/mimetype` | `v1.4.8` | `LICENSE` | `b5a867655833aca9e27c97e28e43dcfc62be0ba0e84f24157afedf8fdaaa2fc1` |
+| `github.com/gin-contrib/sse` | `v1.1.0` | `LICENSE` | `03458b6d5828e1be1127ca2adf122572eb574fc47b56190c3b38203b8b2a98d0` |
+| `github.com/gin-gonic/gin` | `v1.11.0` | `LICENSE` | `03458b6d5828e1be1127ca2adf122572eb574fc47b56190c3b38203b8b2a98d0` |
+| `github.com/go-playground/assert/v2` | `v2.2.0` | `LICENSE` | `9e321f6a1db81616a6c344d3aefddf9834fef23bdd913eae0db283dfa6753dff` |
+| `github.com/go-playground/locales` | `v0.14.1` | `LICENSE` | `a1a5ca382f9e8c646fa05240a74a6554bbc3084b5675f84c9eaafd3d95686612` |
+| `github.com/go-playground/universal-translator` | `v0.18.1` | `LICENSE` | `a55d0c6e1a35ee6cf13afb4bbc3c8801cc570d7ac8edcd5e4503892f1c7ff4f7` |
+| `github.com/go-playground/validator/v10` | `v10.27.0` | `LICENSE` | `9e321f6a1db81616a6c344d3aefddf9834fef23bdd913eae0db283dfa6753dff` |
+| `github.com/go-redis/redis/v8` | `v8.11.5` | `LICENSE` | `60f543bf667cb2081ce1aff22e24a4f1d6b2a9119783796551b35ecd6830753a` |
+| `github.com/go-sql-driver/mysql` | `v1.8.1` | `LICENSE` | `fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85` |
+| `github.com/goccy/go-json` | `v0.10.2` | `LICENSE` | `a707cd425201945d57500566c47c74dc9fb8cd02ef91b9a761abddeb2401e6a7` |
+| `github.com/goccy/go-yaml` | `v1.18.0` | `LICENSE` | `43fe703ea9ebe27f0a6e5d2a1f6dd094fbe324251c743498f3ec19986d7349cd` |
+| `github.com/golang-jwt/jwt/v5` | `v5.3.0` | `LICENSE` | `fe26ca41577b9b2b4448050a24b25e5753af66b5d5945d5d36094e7790bfcb2f` |
+| `github.com/golang/mock` | `v1.4.4` | `LICENSE` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `github.com/golang/protobuf` | `v1.5.0` | `LICENSE` | `8778a9fc1eaffb03ab873caae251df2d224f6b5502be8777d3cd573a4dd43903` |
+| `github.com/google/go-cmp` | `v0.7.0` | `LICENSE` | `17b5d209ba8f9684257ecfcff87df6ceda6194143a8fbd074f29727cff6f0c40` |
+| `github.com/google/gofuzz` | `v1.0.0` | `LICENSE` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `github.com/google/uuid` | `v1.6.0` | `LICENSE` | `0a8d61ed3cbfd5312326e8126c31ce9c627a283adc99131b56896d29ada04b2d` |
+| `github.com/jinzhu/inflection` | `v1.0.0` | `LICENSE` | `a2e27d9b06edb292d37f31504b59a9f56f5211db26e21873fa060b1184801129` |
+| `github.com/jinzhu/now` | `v1.1.5` | `License` | `59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee` |
+| `github.com/json-iterator/go` | `v1.1.12` | `LICENSE` | `3247931083f058b00760a3c32a9ca0962c05e4d562ad2ffcc1753451fa8d4486` |
+| `github.com/klauspost/cpuid/v2` | `v2.3.0` | `LICENSE` | `5d966570d7a442d4e969892860a914e542c97f262c873baee8f0aa48e1f40212` |
+| `github.com/leodido/go-urn` | `v1.4.0` | `LICENSE` | `fe81a9072afbfe0fe32b0bc99a852d697d14fbbca99b0b1878ac8f5dcbdd6ee6` |
+| `github.com/mattn/go-isatty` | `v0.0.20` | `LICENSE` | `08eab1118c80885fa1fa6a6dd7303f65a379fcb3733e063d20d1bbc2c76e6fa1` |
+| `github.com/mattn/go-sqlite3` | `v1.14.22` | `LICENSE` | `afa48e5e64dc610298d80b010ae7a3450f61a79500a9f1d1697ff6dcbbfa1f72` |
+| `github.com/modern-go/concurrent` | `v0.0.0-20180228061459-e0a39a4cb421` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/modern-go/reflect2` | `v1.0.2` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/pelletier/go-toml/v2` | `v2.2.4` | `LICENSE` | `26844e4b53c5adec04e557fd7dfef281cc0205a7d355626b1c68b778b99e9e7b` |
+| `github.com/pmezard/go-difflib` | `v1.0.0` | `LICENSE` | `2eb550be6801c1ea434feba53bf6d12e7c71c90253e0a9de4a4f46cf88b56477` |
+| `github.com/pquerna/otp` | `v1.5.0` | `LICENSE` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `github.com/pquerna/otp` | `v1.5.0` | `NOTICE` | `6aa75b508da9d9d1686352aa5f36bb5f926958c826cfccdf64ad721de4d125c1` |
+| `github.com/prometheus/client_golang` | `v1.19.1` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/prometheus/client_golang` | `v1.19.1` | `NOTICE` | `5ff7ccec357cd44bb3fcf1b3b53a4eddee322eb383d487847d1cf1ccfbd94f46` |
+| `github.com/prometheus/client_model` | `v0.5.0` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/prometheus/client_model` | `v0.5.0` | `NOTICE` | `6c79faa15168885fb88a316ae0df18f486deafddefdc16826cdc56dfbd421e24` |
+| `github.com/prometheus/common` | `v0.48.0` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/prometheus/common` | `v0.48.0` | `NOTICE` | `600244c8052c8c1d307043fafacbc83b429c171dd8e08f5a537c0a54014585ee` |
+| `github.com/prometheus/procfs` | `v0.12.0` | `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| `github.com/prometheus/procfs` | `v0.12.0` | `NOTICE` | `497fcdb9fae55924c12f55f05cbe83a096662e5c591d79b74e4a8f23bab5ffee` |
+| `github.com/quic-go/qpack` | `v0.5.1` | `LICENSE.md` | `1b6a897efd39b20b3cdce8cd306160d115dbded39d855ceeffe21dc11e4d53df` |
+| `github.com/quic-go/quic-go` | `v0.54.0` | `LICENSE` | `77d0b7b53e8abb84cf4dd3f9945a7fdf27044240d2e8023966a721a9a46fe96e` |
+| `github.com/scott4game/skygo` | `v0.2.0` | `LICENSE` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `github.com/stretchr/objx` | `v0.5.0` | `LICENSE` | `b2663894033a05fd80261176cd8da1d72546e25842d5c1abcc852ca23b6b61b0` |
+| `github.com/stretchr/testify` | `v1.11.1` | `LICENSE` | `f8e536c1c7b695810427095dc85f5f80d44ff7c10535e8a9486cf393e2599189` |
+| `github.com/twitchyliquid64/golang-asm` | `v0.15.1` | `LICENSE` | `2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067` |
+| `github.com/ugorji/go/codec` | `v1.3.0` | `LICENSE` | `c8a84b926246b4ac76e3810722858b0f83bdea8378de49911dccbefd70b0692e` |
+| `github.com/yuin/goldmark` | `v1.4.13` | `LICENSE` | `c1d6f653c38c80294dc7994647ba0dcc508ce64a86996303c804efa2f7982bff` |
+| `github.com/yuin/gopher-lua` | `v1.1.1` | `LICENSE` | `260ffdb7a4ba43069407382e611dab0797bcdabad46deb3d25b36af7f8204f66` |
+| `go.uber.org/mock` | `v0.5.0` | `LICENSE` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `golang.org/x/arch` | `v0.20.0` | `LICENSE` | `8cda009bd927676a95ee7ce2dae921442ac4d9584d041b56ecfcba6839032f0b` |
+| `golang.org/x/crypto` | `v0.40.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/mod` | `v0.25.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/net` | `v0.42.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/sync` | `v0.16.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/sys` | `v0.35.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/telemetry` | `v0.0.0-20240521205824-bda55230c457` | `LICENSE` | `2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067` |
+| `golang.org/x/term` | `v0.33.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/text` | `v0.27.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `golang.org/x/tools` | `v0.34.0` | `LICENSE` | `911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad` |
+| `google.golang.org/protobuf` | `v1.36.11` | `LICENSE` | `4835612df0098ca95f8e7d9e3bffcb02358d435dbb38057c844c99d7f725eb20` |
+| `gopkg.in/check.v1` | `v0.0.0-20161208181325-20d25e280405` | `LICENSE` | `69ce77f2b1c9c608d27f2d749b0e7d0c13960ed3b0dc07b973ac940e362e5d9c` |
+| `gopkg.in/yaml.v3` | `v3.0.1` | `LICENSE` | `d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b` |
+| `gopkg.in/yaml.v3` | `v3.0.1` | `NOTICE` | `f6c2dd3a67b576eafb89b80200b8b1627230bf3821a0c14cb99a22ac19107d00` |
+| `gorm.io/driver/mysql` | `v1.6.0` | `License` | `59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee` |
+| `gorm.io/driver/sqlite` | `v1.6.0` | `License` | `59f62caa972078dc1664ce928b5e5d51b78633fc43b78894d2dab83bc504edee` |
+| `gorm.io/gorm` | `v1.31.1` | `LICENSE` | `a7535fe9fee1f534b47846eee31be7492c73fb766e6f4fe9433a427e16e147c3` |
+| `rsc.io/pdf` | `v0.1.1` | `LICENSE` | `2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067` |

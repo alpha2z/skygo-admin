@@ -1,0 +1,7 @@
+.git
+.env*
+runtime
+dist
+*.pem
+*.key
+*.log

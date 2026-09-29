@@ -1,0 +1,14 @@
+FROM golang:1.25.5-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN GOWORK=off go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 GOWORK=off go build -trimpath -o /admin-api ./cmd/admin-api
+FROM alpine:3.23
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 admin
+WORKDIR /app
+COPY --from=build /admin-api /usr/local/bin/admin-api
+COPY admin-web /app/admin-web
+USER 10001
+ENTRYPOINT ["admin-api"]

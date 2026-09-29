@@ -1,0 +1,50 @@
+/* Plain browser UI. Server-side permissions and approvals remain authoritative. */
+'use strict';
+function textValue(value) { return value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value); }
+function parseCSV(value) { return value.split(',').map(x => x.trim()).filter(Boolean); }
+if (typeof module !== 'undefined') module.exports = {textValue, parseCSV};
+if (typeof document !== 'undefined') {
+ const $ = id => document.getElementById(id); let captchaID = '', current = 'hosts', session = null;
+ const pages = {
+  hosts: ['Hosts', 'ops.read', 'Enrollment returns a token once. Install it in a private file on the host. Revocation blocks future requests.'],
+  services: ['Services', 'ops.read', 'Define service IDs that match the host inventory. Images require repository@sha256:digest.'],
+  tasks: ['Tasks', 'ops.read', 'Create an immutable operation, then ask another administrator to approve it. Uncertain tasks keep the service locked.'],
+  configs: ['Configuration', 'config.read', 'Publish non-secret JSON. To activate or roll back, create a configure task referencing a version ID. Skygo content is an array of nodeId/address entries.'],
+  builds: ['Builds', 'build.read', 'Optional: dispatch only the workflow, refs and components approved in local configuration.'],
+  audit: ['Audit', 'audit.read', 'Read-only, hash-linked operation history.'],
+  admins: ['Administrators', 'admin.manage', 'Create an independent approver before running service mutations.']
+ };
+ const fields = {
+  hosts: [['id','Host ID']],
+  services: [['id','Service ID'],['host_id','Host ID'],['image','Immutable image'],['depends_on','Dependency IDs (comma separated)'],['control_plane','Control plane','select',['false','true']]],
+  tasks: [['service','Service ID'],['action','Action','select',['health','start','stop','restart','deploy','rollback','configure','logs']],['image','Image (deploy / rollback)'],['config_version','Version ID (configure)']],
+  configs: [['service','Service ID'],['kind','Format','select',['json','skygo']],['content','JSON content','textarea']],
+  builds: [['ref','Allowed ref'],['service','Component','select',['admin-api','admin-web','ops-agent','all']],['platform','Platform','select',['linux/amd64','linux/arm64']]],
+  admins: [['Username','Username'],['Email','Email','email'],['Password','Password','password'],['Role','Role','select',['operator','approver','viewer','superadmin']]]
+ };
+ const writePermission = {hosts:'host.manage',services:'ops.write',tasks:'ops.write',configs:'config.write',builds:'build.write',admins:'admin.manage'};
+ const allowed = p => session?.permissions?.includes(p);
+ function notice(message) { $('notice').textContent = message; }
+ function csrf() { return document.cookie.split('; ').find(x=>x.startsWith('admin_csrf='))?.split('=').slice(1).join('=') || ''; }
+ function confirmCode() { return new Promise(resolve=>{const d=$('confirmation-dialog'),f=$('confirmation-form');f.reset();d.showModal();f.onsubmit=e=>{e.preventDefault();const code=new FormData(f).get('code');d.close();resolve(code)};$('confirmation-cancel').onclick=()=>{d.close();resolve(null)};d.oncancel=()=>resolve(null);}); }
+ async function api(path, method='GET', body, extra={}) {
+  const headers={'Content-Type':'application/json','X-CSRF-Token':csrf(),...extra};
+  const response=await fetch('/api/v1/'+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),credentials:'same-origin'});
+  const data=await response.json().catch(()=>({error:'Request failed ('+response.status+')'}));
+  if(response.status===428){const code=await confirmCode();if(code===null)throw Error('Cancelled');return api(path,method,body,{'X-Confirmation-ID':data.confirmation_id,'X-Confirmation-Code':code,...extra});}
+  if(!response.ok)throw Error(data.error || 'Request rejected ('+response.status+')');return data;
+ }
+ function showResult(data) { $('result-content').textContent=JSON.stringify(data,null,2);$('result-dialog').showModal(); }
+ $('result-close').onclick=()=>{$('result-content').textContent='';$('result-dialog').close();};$('result-dialog').onclose=()=>{$('result-content').textContent='';};
+ async function refreshCaptcha(){try{const data=await api('auth/captcha');captchaID=data.captcha_id;$('captcha').src=data.image;}catch(e){notice(e.message)}}
+ $('captcha-refresh').onclick=refreshCaptcha;
+ $('login').onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.target));body.captcha_id=captchaID;try{await api('login','POST',body);e.target.reset();await loadSession();notice('Signed in.');}catch(err){notice(err.message);await refreshCaptcha();}};
+ $('bootstrap').onsubmit=async e=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.target));const token=body.token;delete body.token;try{const result=await api('bootstrap','POST',body,{'X-Bootstrap-Token':token});showResult(result);e.target.reset();$('bootstrap-panel').hidden=true;}catch(err){notice(err.message)}};
+ $('logout').onclick=async()=>{try{await api('logout','POST');location.reload();}catch(e){notice(e.message)}};
+ $('refresh').onclick=()=>render();
+ function formFor(page){const root=$('forms');root.replaceChildren();if(!fields[page]||!allowed(writePermission[page]))return;const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Create '+pages[page][0].toLowerCase();details.append(summary);const form=document.createElement('form');for(const[name,title,type,options]of fields[page]){const label=document.createElement('label');label.textContent=title;const input=document.createElement(type==='select'?'select':type==='textarea'?'textarea':'input');input.name=name;if(type==='select'){for(const value of options){const option=document.createElement('option');option.value=value;option.textContent=value;input.append(option)}}else if(type!=='textarea'){input.type=type||'text'}label.append(input);form.append(label)}const button=document.createElement('button');button.textContent='Submit';form.append(button);form.onsubmit=async e=>{e.preventDefault();button.disabled=true;try{const body=Object.fromEntries(new FormData(form));if(page==='services'){body.depends_on=parseCSV(body.depends_on);body.control_plane=body.control_plane==='true'}if(page==='configs')body.content=JSON.parse(body.content);const result=await api(page,'POST',body);form.reset();showResult(result);await render()}catch(err){notice(err.message)}finally{button.disabled=false}};details.append(form);root.append(details)}
+ function actionButton(cell,title,path){const b=document.createElement('button');b.textContent=title;b.onclick=async()=>{b.disabled=true;try{const result=await api(path,'POST');showResult(result);await render()}catch(e){notice(e.message)}finally{b.disabled=false}};cell.append(b,document.createTextNode(' '));}
+ async function render(){notice('');$('page-title').textContent=pages[current][0];$('page-help').textContent=pages[current][2];for(const b of $('tabs').children)b.setAttribute('aria-current',String(b.dataset.page===current));formFor(current);try{const data=await api(current);const root=$('data');root.replaceChildren();if(!Array.isArray(data)){const pre=document.createElement('pre');pre.textContent=JSON.stringify(data,null,2);root.append(pre);return}if(!data.length){root.textContent='No records yet.';return}const table=document.createElement('table'),thead=document.createElement('thead'),tr=document.createElement('tr');const keys=Object.keys(data[0]).filter(k=>!['PasswordHash','TOTPSecret','FailedAttempts','LockedUntilMS','CreatedAtMS','UpdatedAtMS'].includes(k));for(const k of [...keys,'Actions']){const th=document.createElement('th');th.textContent=k;tr.append(th)}thead.append(tr);table.append(thead);const tbody=document.createElement('tbody');for(const row of data){const tr=document.createElement('tr');for(const k of keys){const td=document.createElement('td'),pre=document.createElement('pre');pre.textContent=textValue(row[k]);td.append(pre);tr.append(td)}const actions=document.createElement('td');if(current==='tasks'&&row.status==='pending'&&allowed('ops.approve')){if(row.requested_by!==session.id)actionButton(actions,'Approve','tasks/'+encodeURIComponent(row.id)+'/approve');actionButton(actions,'Reject','tasks/'+encodeURIComponent(row.id)+'/reject')}if(current==='hosts'&&row.active&&allowed('host.manage'))actionButton(actions,'Revoke','hosts/'+encodeURIComponent(row.id)+'/revoke');if(current==='admins'&&row.ID!==session.id&&row.Active)actionButton(actions,'Disable','admins/'+row.ID+'/disable');tr.append(actions);tbody.append(tr)}table.append(tbody);root.append(table)}catch(e){notice(e.message)}}
+ async function loadSession(){session=await api('session');$('auth').hidden=true;$('workspace').hidden=false;$('logout').hidden=false;$('tabs').replaceChildren();for(const[key,[name,permission]]of Object.entries(pages)){if(!allowed(permission))continue;const b=document.createElement('button');b.textContent=name;b.dataset.page=key;b.onclick=()=>{current=key;render()};$('tabs').append(b)}await render()}
+ (async()=>{try{const settings=await api('auth/settings');$('otp-label').hidden=!settings.totp_enabled;const status=await api('bootstrap/status');$('bootstrap-panel').hidden=!status.needs_bootstrap;try{await loadSession()}catch{await refreshCaptcha()}}catch(e){notice(e.message)}})();
+}

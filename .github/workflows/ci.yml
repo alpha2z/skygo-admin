@@ -1,0 +1,36 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python3 scripts/scan.py
+      - name: Secret scan (redacted)
+        run: |
+          GOBIN="$RUNNER_TEMP/security-tools" go install github.com/zricethezav/gitleaks/v8@v8.24.3
+          "$RUNNER_TEMP/security-tools/gitleaks" dir . --redact --no-banner
+          "$RUNNER_TEMP/security-tools/gitleaks" git . --redact --no-banner
+      - run: go vet ./...
+        env:
+          GOWORK: 'off'
+      - run: make test
+      - run: python3 scripts/integration.py
+      - run: python3 scripts/release.py
+      - name: Build standalone images
+        run: |
+          docker build -f deploy/Dockerfile.api -t skygo-admin/admin-api:ci .
+          docker build -f deploy/Dockerfile.web -t skygo-admin/admin-web:ci .
+          docker build -f deploy/Dockerfile.agent -t skygo-admin/ops-agent:ci .
+      - name: Container and Skygo integration
+        run: python3 scripts/docker-smoke.py

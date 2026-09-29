@@ -1,0 +1,37 @@
+name: Approved component build
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        type: choice
+        options: [admin-api, admin-web, ops-agent, all]
+        required: true
+      platform:
+        type: choice
+        options: [linux/amd64, linux/arm64]
+        required: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build selected images locally
+        env:
+          COMPONENT: ${{ inputs.service }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$COMPONENT" in admin-api|admin-web|ops-agent|all) ;; *) exit 1;; esac
+          case "$PLATFORM" in linux/amd64|linux/arm64) ;; *) exit 1;; esac
+          for component in admin-api admin-web ops-agent; do
+            if [ "$COMPONENT" != all ] && [ "$COMPONENT" != "$component" ]; then continue; fi
+            case "$component" in admin-api) recipe=api;; admin-web) recipe=web;; ops-agent) recipe=agent;; esac
+            docker buildx build --platform "$PLATFORM" -f "deploy/Dockerfile.$recipe" -t "skygo-admin/$component:$GITHUB_SHA" --output "type=docker,dest=$component-image.tar" .
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: component-images
+          path: '*-image.tar'
