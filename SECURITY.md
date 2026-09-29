@@ -11,3 +11,7 @@ re-enrollment should use a new host ID so stale signed commands cannot be replay
 
 Automatic source scans complement, but do not replace, manual review of code,
 fixtures, documentation, images, archives and Git history before publication.
+
+Build-signing trust is separate from task-signing trust. Only public build keys
+enter the API. Registry credentials remain on approved agents. Signed artifact
+registration never grants permission to restart or upgrade a service.

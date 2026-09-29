@@ -70,8 +70,9 @@ application secrets. Configure tasks never carry secrets.
 A local JSON file selected by `ADMIN_GITHUB_CONFIG` contains `repository`,
 `workflow`, `allowed_refs` and an absolute `token_file` path. The token file must
 be private. `build.yml` accepts only the three public components and two Linux
-architectures. It creates artifacts without pushing a registry or publishing a
-release. Dispatch network failures remain uncertain and are not automatically
+architectures. It builds archives by default. Explicit `publish_images: true` configuration
+enables digest-pinned GHCR publication and a separately signed image manifest;
+see [release workflow](releases.md). Dispatch network failures remain uncertain and are not automatically
 retried. Inspect the workflow runs before dispatching again.
 
 ## Upgrades and recovery

@@ -12,7 +12,8 @@ backend, protocol, configuration tables or assets.
 - Signed, separately approved service tasks with durable agent receipts.
 - Digest-pinned Docker image deployment and rollback using local image allowlists.
 - Versioned JSON configuration and Skygo registry publication through approved tasks.
-- Optional, allowlisted GitHub workflow dispatch and build status.
+- Optional, allowlisted GitHub workflow dispatch, signed artifact registration,
+  persistent per-attempt status and paired Admin image preparation.
 - Plain JavaScript browser interface; Go lifecycle managed by Skygo `app`.
 
 ## Local start
@@ -52,6 +53,8 @@ ops-agent -config /absolute/path/to/agent.json
 An agent inventory is required; it controls Compose files, service names, image
 repositories, health probes, configuration paths and log access. The API cannot
 supply a shell command, mount path or arbitrary health URL.
+
+See [release workflow and schema v2 migration](docs/releases.md) before upgrading an existing installation.
 
 ## Operations
 

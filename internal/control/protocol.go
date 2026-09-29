@@ -24,9 +24,12 @@ type Service struct {
 	HostID       string   `json:"host_id"`
 	Image        string   `json:"image"`
 	DependsOn    []string `json:"depends_on"`
+	ControlKind  string   `json:"control_kind,omitempty"`
+	Platform     string   `json:"platform,omitempty"`
 	ControlPlane bool     `json:"control_plane"`
 }
 type Command struct {
+	Platform   string          `json:"platform,omitempty"`
 	Version    int             `json:"version"`
 	ID         string          `json:"id"`
 	HostID     string          `json:"host_id"`
@@ -42,6 +45,8 @@ type Envelope struct {
 	Signature []byte          `json:"signature"`
 }
 type Result struct {
+	ImageID    string `json:"image_id,omitempty"`
+	Platform   string `json:"platform,omitempty"`
 	Logs       string `json:"logs,omitempty"`
 	ID         string `json:"id"`
 	Status     string `json:"status"`
@@ -51,10 +56,13 @@ type Result struct {
 	ConfigHash string `json:"config_hash,omitempty"`
 }
 type Observation struct {
-	Service    string `json:"service"`
-	Image      string `json:"image"`
-	Healthy    bool   `json:"healthy"`
-	ConfigHash string `json:"config_hash,omitempty"`
+	ImageID      string   `json:"image_id,omitempty"`
+	Platform     string   `json:"platform,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Service      string   `json:"service"`
+	Image        string   `json:"image"`
+	Healthy      bool     `json:"healthy"`
+	ConfigHash   string   `json:"config_hash,omitempty"`
 }
 type Heartbeat struct {
 	Version      int           `json:"version"`
@@ -67,10 +75,17 @@ func (c Command) Validate() error {
 	if c.Version != Version || !Identifier.MatchString(c.ID) || !Identifier.MatchString(c.HostID) || !Identifier.MatchString(c.Service) || c.ExpiresAt.IsZero() {
 		return errors.New("invalid command identity")
 	}
+	if c.Action != "prepare-image" && c.Platform != "" {
+		return errors.New("unexpected platform")
+	}
 	switch c.Action {
 	case "start", "stop", "restart", "health", "logs":
 		if c.Image != "" || len(c.Config) > 0 {
 			return errors.New("unexpected action payload")
+		}
+	case "prepare-image":
+		if !Image.MatchString(c.Image) || len(c.Config) > 0 || (c.Platform != "linux/amd64" && c.Platform != "linux/arm64") {
+			return errors.New("invalid image preparation")
 		}
 	case "deploy", "rollback":
 		if !Image.MatchString(c.Image) || len(c.Config) > 0 {
@@ -121,6 +136,9 @@ func Verify(e Envelope, k ed25519.PublicKey, host string) (Command, error) {
 func ValidateServices(services []Service) error {
 	all := map[string]Service{}
 	for _, s := range services {
+		if s.ControlKind != "" && (!s.ControlPlane || (s.ControlKind != "admin-api" && s.ControlKind != "admin-web" && s.ControlKind != "ops-agent") || (s.Platform != "linux/amd64" && s.Platform != "linux/arm64")) {
+			return errors.New("invalid control service metadata")
+		}
 		if !Identifier.MatchString(s.ID) || !Identifier.MatchString(s.HostID) || !Image.MatchString(s.Image) {
 			return errors.New("invalid service")
 		}

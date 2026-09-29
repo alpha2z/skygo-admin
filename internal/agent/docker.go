@@ -87,6 +87,7 @@ func (Docker) Observe(ctx context.Context, s LocalService) (control.Observation,
 		return o, err
 	}
 	var state struct {
+		Image  string
 		Config struct{ Image string }
 		State  struct {
 			Running bool
@@ -97,6 +98,13 @@ func (Docker) Observe(ctx context.Context, s LocalService) (control.Observation,
 		return o, errors.New("invalid container state")
 	}
 	o.Image = state.Config.Image
+	if image, err := inspectImage(ctx, state.Image); err == nil {
+		o.ImageID = image.ID
+		o.Platform = image.platform()
+		if len(s.AllowedImages) > 0 {
+			o.Capabilities = []string{"image.prepare.v1"}
+		}
+	}
 	o.Healthy = state.State.Running
 	if state.State.Health != nil {
 		o.Healthy = o.Healthy && state.State.Health.Status == "healthy"
@@ -128,6 +136,8 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 	args := compose(s)
 	env := os.Environ()
 	switch c.Action {
+	case "prepare-image":
+		return prepareImage(ctx, s, c)
 	case "health":
 	case "logs":
 		if !s.AllowLogs {
@@ -161,9 +171,12 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 			return r
 		}
 		env = imageEnv(s, c.Image)
-		if _, err := run(ctx, env, "pull", c.Image); err != nil {
-			r.Code = "IMAGE_PULL_FAILED"
-			return r
+		cached, cacheErr := inspectImage(ctx, c.Image)
+		if cacheErr != nil || !cached.matches(c.Image, cached.platform()) {
+			if _, err := run(ctx, env, "pull", c.Image); err != nil {
+				r.Code = "IMAGE_PULL_FAILED"
+				return r
+			}
 		}
 		args = append(args, "up", "-d", "--no-deps", "--pull", "never", s.ComposeService)
 	case "configure":

@@ -16,7 +16,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +34,8 @@ func read(c *gin.Context, out any) ([]byte, bool) {
 
 // change preserves a durable intent before the mutation. An interrupted email
 // confirmation is never replayed as a fresh external operation.
+type unchangedMutation struct{ Value any }
+
 func (s *Server) change(c *gin.Context, body []byte, action, target string, fn func(*gorm.DB) (any, error)) {
 	admin := uint32(c.GetUint("admin_id"))
 	id := c.GetHeader("X-Confirmation-ID")
@@ -77,12 +78,20 @@ func (s *Server) change(c *gin.Context, body []byte, action, target string, fn f
 		if err != nil {
 			return err
 		}
+		if unchanged, ok := result.(unchangedMutation); ok {
+			result = unchanged.Value
+			return nil
+		}
 		return s.appendAudit(tx, admin, action, target, map[string]any{"confirmation": !s.cfg.SkipEmailConfirmation})
 	})
 	status := 200
 	if err != nil {
 		status = 409
 		result = gin.H{"error": errConflict.Error()}
+		var safe *releaseError
+		if errors.As(err, &safe) {
+			result = gin.H{"error": safe.Message, "error_code": safe.Code}
+		}
 	}
 	b, _ := json.Marshal(result)
 	if service != nil {
@@ -215,6 +224,10 @@ func (s *Server) createTask(c *gin.Context) {
 	}
 	body, ok := read(c, &req)
 	if !ok {
+		return
+	}
+	if req.Action == "prepare-image" {
+		c.Status(400)
 		return
 	}
 	if req.Action == "configure" {
@@ -619,6 +632,13 @@ func (s *Server) result(c *gin.Context) {
 				return errConflict
 			}
 		}
+		if req.Status == "succeeded" && t.Action == "prepare-image" {
+			if req.Image != command.Image || req.Platform != command.Platform || !validRuntimeImageID(req.ImageID) {
+				return errConflict
+			}
+		}
+		now := time.Now().UTC()
+		t.FinishedAt = &now
 		t.Status = req.Status
 		t.Result = string(raw)
 		if tx.Save(&t).Error != nil {
@@ -644,53 +664,4 @@ func (s *Server) result(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"ok": true})
-}
-func (s *Server) builds(c *gin.Context) {
-	if s.github == nil {
-		c.JSON(200, gin.H{"enabled": false})
-		return
-	}
-	runs, err := s.github.Runs(c.Request.Context())
-	if err != nil {
-		c.JSON(502, gin.H{"error": "build provider unavailable"})
-		return
-	}
-	var dispatches []GitHubDispatch
-	s.db.Order("created_at DESC").Limit(30).Find(&dispatches)
-	c.JSON(200, gin.H{"enabled": true, "config": s.github.Config(), "runs": runs, "dispatches": dispatches})
-}
-func (s *Server) dispatchBuild(c *gin.Context) {
-	if s.github == nil {
-		c.Status(http.StatusNotImplemented)
-		return
-	}
-	var req struct{ Ref, Service, Platform string }
-	body, ok := read(c, &req)
-	if !ok {
-		return
-	}
-	if s.github.ValidateDispatch(req.Ref, req.Service, req.Platform) != nil {
-		c.Status(400)
-		return
-	}
-	// Persist an intent in the transaction, then dispatch once. Unknown outcomes
-	// remain uncertain for operator reconciliation and are never auto-retried.
-	var dispatchID string
-	s.change(c, body, "build.dispatch", req.Service, func(tx *gorm.DB) (any, error) {
-		id, err := randomToken(24)
-		if err != nil {
-			return nil, err
-		}
-		row := GitHubDispatch{ID: id, Status: "uncertain", CreatedAt: time.Now().UTC()}
-		if tx.Create(&row).Error != nil {
-			return nil, errConflict
-		}
-		dispatchID = id
-		return row, nil
-	})
-	if dispatchID != "" {
-		if s.github.Dispatch(c.Request.Context(), req.Ref, req.Service, req.Platform) == nil {
-			s.db.Model(&GitHubDispatch{}).Where("id = ?", dispatchID).Update("status", "accepted")
-		}
-	}
 }

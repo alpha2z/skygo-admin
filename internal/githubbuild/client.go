@@ -19,10 +19,11 @@ import (
 )
 
 type Config struct {
-	Repository  string   `json:"repository"`
-	Workflow    string   `json:"workflow"`
-	AllowedRefs []string `json:"allowed_refs"`
-	TokenFile   string   `json:"token_file,omitempty"`
+	PublishImages bool     `json:"publish_images,omitempty"`
+	Repository    string   `json:"repository"`
+	Workflow      string   `json:"workflow"`
+	AllowedRefs   []string `json:"allowed_refs"`
+	TokenFile     string   `json:"token_file,omitempty"`
 }
 type Client struct {
 	config Config
@@ -135,6 +136,7 @@ func (c *Client) path(suffix string) string {
 }
 
 type Run struct {
+	Attempt    int       `json:"run_attempt"`
 	ID         int64     `json:"id"`
 	Number     int64     `json:"run_number"`
 	Status     string    `json:"status"`
@@ -196,7 +198,9 @@ func (c *Client) Dispatch(ctx context.Context, ref, service, platform string) er
 	if err := c.ValidateDispatch(ref, service, platform); err != nil {
 		return err
 	}
-	return c.request(ctx, "POST", c.path("/dispatches"), map[string]any{"ref": ref, "inputs": map[string]string{"service": service, "platform": platform}}, nil)
+	inputs := map[string]string{"service": service, "platform": platform}
+	if c.config.PublishImages {
+		inputs["publish"] = "true"
+	}
+	return c.request(ctx, "POST", c.path("/dispatches"), map[string]any{"ref": ref, "inputs": inputs}, nil)
 }
-
-type artifactRedirect struct{ location string }

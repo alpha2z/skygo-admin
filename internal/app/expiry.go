@@ -9,6 +9,7 @@ import (
 
 // Undelivered commands can expire safely. Once delivery may have happened, retain
 // the service lock and command identity until the agent supplies a receipt.
+// Image-cache preparation owns no service lock and can expire for a fresh retry.
 func (s *Server) expireTasks(ctx context.Context) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var lock AuditLock
@@ -20,7 +21,7 @@ func (s *Server) expireTasks(ctx context.Context) error {
 			return err
 		}
 		for _, task := range tasks {
-			if task.Status == "dispatched" {
+			if task.Status == "dispatched" && task.Action != "prepare-image" {
 				task.Status = "uncertain"
 			} else {
 				task.Status = "expired"

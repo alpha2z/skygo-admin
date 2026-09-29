@@ -49,3 +49,23 @@ local evidence, not a claim that CI or a production deployment has passed.
 The initial Docker base-image fetch timed out through the daemon. Public base
 images were fetched anonymously and loaded locally; the standard Dockerfiles then
 built successfully. No private base image or application checkout was used.
+
+## Release workflow synchronization — schema v2
+
+Local verification for the release-management update includes persistent
+per-attempt registration, immutable duplicate/conflict handling, single success
+audit under concurrent requests, unknown state on read failure, missing/mixed
+architecture pairs, ambiguous host identity, role denial, partial preparation
+retry, stale/previous-boot receipts and explicit v1-to-v2 schema migration.
+
+The Docker fixture additionally prepares both image revisions twice and verifies
+that container IDs and configuration bytes remain unchanged, then exercises
+cached deployment and rollback. Artifact tests verify provenance and ZIP digest
+binding, reject unapproved download origins, and ensure provider authorization
+is not forwarded to signed storage URLs. Frontend tests cover permission-aware
+registration, persistent bookmarks and host selection without silent retargeting.
+
+The Browser connection was unavailable, so interactive browser verification is
+not claimed for this update. Live GitHub publication/registration and production
+Registry credentials were not used; provider transport tests and the disposable
+registry provide local evidence only. See [migration and release workflow](releases.md).

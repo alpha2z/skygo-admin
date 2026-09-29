@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/alpha2z/skygo-admin/internal/control"
@@ -41,6 +42,31 @@ func TestDockerServiceLifecycle(t *testing.T) {
 	json.Unmarshal(raw, &fixture)
 	if len(fixture.Images) != 2 {
 		t.Fatal("two image versions required")
+	}
+	before, err := run(ctx, os.Environ(), append(compose(s), "ps", "-a", "-q", s.ComposeService)...)
+	if err != nil {
+		t.Fatal("container fixture unavailable")
+	}
+	beforeConfig, err := os.ReadFile(s.ConfigPath)
+	if err != nil {
+		t.Fatal("config fixture unavailable")
+	}
+	observed, err := d.Observe(ctx, s)
+	if err != nil || observed.Platform == "" {
+		t.Fatal("platform unavailable")
+	}
+	for _, image := range fixture.Images {
+		for attempt := 0; attempt < 2; attempt++ {
+			r := d.Execute(ctx, s, control.Command{ID: "smoke-prepare", Action: "prepare-image", Image: image, Platform: observed.Platform})
+			if r.Status != "succeeded" || r.ImageID == "" || r.Platform != observed.Platform {
+				t.Fatalf("image preparation failed: %s", r.Code)
+			}
+		}
+	}
+	after, _ := run(ctx, os.Environ(), append(compose(s), "ps", "-a", "-q", s.ComposeService)...)
+	afterConfig, _ := os.ReadFile(s.ConfigPath)
+	if !bytes.Equal(before, after) || !bytes.Equal(beforeConfig, afterConfig) {
+		t.Fatal("image preparation changed container or configuration")
 	}
 	for i, image := range []string{fixture.Images[0], fixture.Images[1], fixture.Images[0]} {
 		action := "deploy"

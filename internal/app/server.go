@@ -36,7 +36,7 @@ type Server struct {
 	auth              *casbin.SyncedEnforcer
 	sessionOK         func(context.Context, uint32, string) bool
 	emailSender       confirmation.Sender
-	github            *githubbuild.Client
+	github            githubBuildClient
 	httpServer        *http.Server
 	listener          net.Listener
 }
@@ -57,7 +57,7 @@ func OpenDB(dsn string) (*gorm.DB, error) {
 }
 func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 	var version SchemaVersion
-	if db.First(&version, 1).Error != nil || version.Version != 1 {
+	if db.First(&version, 1).Error != nil || version.Version != 2 {
 		return nil, errors.New("run admin-api -migrate before starting")
 	}
 	m, err := model.NewModelFromString(casbinModel)
@@ -192,6 +192,13 @@ func (s *Server) Router() *gin.Engine {
 	a.GET("/admins", s.require("admin.manage"), s.admins)
 	a.POST("/admins", s.require("admin.manage"), s.createAdmin)
 	a.POST("/admins/:id/disable", s.require("admin.manage"), s.disableAdmin)
+	a.GET("/release-settings", s.require("build.read"), s.releaseSettings)
+	a.POST("/release-settings/keys", s.require("admin.manage"), s.require("build.write"), s.addBuildKey)
+	a.GET("/releases", s.require("build.read"), s.releaseList)
+	a.GET("/releases/:id", s.require("build.read"), s.releaseDetail)
+	a.POST("/builds/:id/register", s.require("build.write"), s.registerBuild)
+	a.GET("/releases/:id/admin-preparation", s.require("ops.read"), s.require("build.read"), s.adminPreparation)
+	a.POST("/releases/:id/prepare-admin", s.require("ops.write"), s.require("build.read"), s.prepareAdminImages)
 	a.GET("/builds", s.require("build.read"), s.builds)
 	a.POST("/builds", s.require("build.write"), s.dispatchBuild)
 	agents := r.Group("/agent/v1", s.agentAuth())
@@ -199,6 +206,7 @@ func (s *Server) Router() *gin.Engine {
 	agents.GET("/commands", s.commands)
 	agents.POST("/results", s.result)
 	r.StaticFile("/", s.cfg.WebRoot+"/index.html")
+	r.StaticFile("/releases.js", s.cfg.WebRoot+"/releases.js")
 	r.StaticFile("/app.js", s.cfg.WebRoot+"/app.js")
 	r.StaticFile("/styles.css", s.cfg.WebRoot+"/styles.css")
 	return r

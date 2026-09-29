@@ -10,28 +10,67 @@ on:
         type: choice
         options: [linux/amd64, linux/arm64]
         required: true
+      publish:
+        description: Publish digest-pinned images and a signed build manifest
+        type: boolean
+        default: false
 permissions:
   contents: read
+  packages: write
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - name: Build selected images locally
+      - name: Configure optional image publication
+        if: inputs.publish
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          BUILD_SIGNING_KEY: ${{ secrets.BUILD_SIGNING_KEY }}
+        run: |
+          test -n "$BUILD_SIGNING_KEY" || { echo 'Configure a separate BUILD_SIGNING_KEY first.'; exit 1; }
+          umask 077
+          printf '%s' "$BUILD_SIGNING_KEY" > "$RUNNER_TEMP/build-signing-key"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build selected images
         env:
           COMPONENT: ${{ inputs.service }}
           PLATFORM: ${{ inputs.platform }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           case "$COMPONENT" in admin-api|admin-web|ops-agent|all) ;; *) exit 1;; esac
           case "$PLATFORM" in linux/amd64|linux/arm64) ;; *) exit 1;; esac
+          namespace=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          export namespace
           for component in admin-api admin-web ops-agent; do
             if [ "$COMPONENT" != all ] && [ "$COMPONENT" != "$component" ]; then continue; fi
             case "$component" in admin-api) recipe=api;; admin-web) recipe=web;; ops-agent) recipe=agent;; esac
-            docker buildx build --platform "$PLATFORM" -f "deploy/Dockerfile.$recipe" -t "skygo-admin/$component:$GITHUB_SHA" --output "type=docker,dest=$component-image.tar" .
+            if [ "$PUBLISH" = true ]; then
+              docker buildx build --platform "$PLATFORM" -f "deploy/Dockerfile.$recipe" -t "ghcr.io/$namespace/$component:$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" --push --metadata-file "$RUNNER_TEMP/metadata-$component.json" .
+            else
+              docker buildx build --platform "$PLATFORM" -f "deploy/Dockerfile.$recipe" -t "skygo-admin/$component:$GITHUB_SHA" --output "type=docker,dest=$component-image.tar" .
+            fi
           done
+          if [ "$PUBLISH" = true ]; then
+            python3 scripts/build-manifest.py --metadata-dir "$RUNNER_TEMP" --component "$COMPONENT" --platform "$PLATFORM" --out "$RUNNER_TEMP/image-manifest.json"
+            GOWORK=off go run ./cmd/sign-images -manifest "$RUNNER_TEMP/image-manifest.json" -key-file "$RUNNER_TEMP/build-signing-key" -out signed-images.json
+          fi
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.publish }}
         with:
           name: component-images
           path: '*-image.tar'
+      - uses: actions/upload-artifact@v4
+        if: inputs.publish
+        with:
+          name: skygo-admin-signed-images-${{ github.run_attempt }}
+          path: signed-images.json
+          if-no-files-found: error
+      - name: Remove build signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/build-signing-key"

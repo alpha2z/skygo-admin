@@ -52,3 +52,7 @@ Agent routes under `/agent/v1` require `X-Host-ID` and `Authorization: Bearer â€
 Unknown host identities and revoked tokens return 401. No agent may obtain another
 host's tasks. Signature, expiry, service inventory and local image allowlists are
 checked by the agent. Results are idempotent; conflicting terminal results are rejected.
+
+The signed release and image-preparation endpoints are documented in
+[release workflow and schema v2](releases.md). A prepared image is not an approved
+service upgrade.

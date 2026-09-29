@@ -218,7 +218,8 @@ func (a *Agent) run(ctx context.Context) {
 }
 
 // Handle journals intent before executing. The same signed command can only
-// execute once. A crash is reconciled from observable state or left uncertain.
+// execute a service mutation once. A crash is reconciled from observable state
+// or left uncertain; interrupted image-cache preparation is safely repeatable.
 func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -249,6 +250,17 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 		}
 		if old.Result.Status != "uncertain" {
 			return old.Result
+		}
+		if cmd.Action == "prepare-image" && time.Now().Before(cmd.ExpiresAt) { // Cache population is repeatable; never repeat a service mutation.
+			work, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			result = a.driver.Execute(work, service, cmd)
+			cancel()
+			result.ID = cmd.ID
+			old.Result = result
+			if a.save(path, old) != nil {
+				return control.Result{ID: cmd.ID, Status: "uncertain", Code: "JOURNAL_UNAVAILABLE"}
+			}
+			return result
 		}
 		result = a.reconcile(ctx, service, cmd)
 		if result.Status == "succeeded" {

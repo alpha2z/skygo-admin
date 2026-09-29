@@ -48,5 +48,6 @@ use `cluster.FileRegistry`. The controller exposes no arbitrary Actor invocation
 
 Schema changes are explicit (`admin-api -migrate`) and must be run by a deployment
 operator. Ordinary startup checks the schema version and never performs migration.
-Version 1 is a new schema; future incompatible changes must add ordered migration
-steps and advance the version check before release.
+Schema v2 adds build trust, registered image releases, preparation receipts and a
+nullable task completion timestamp. Existing installations explicitly run the
+migration before starting the new API; see [release migration](releases.md).

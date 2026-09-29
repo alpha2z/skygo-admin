@@ -5,3 +5,5 @@ dist
 *.pem
 *.key
 *.log
+*-image.tar
+signed-images.json
