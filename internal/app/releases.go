@@ -30,9 +30,10 @@ type BuildTrustKey struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type ImageRelease struct {
-	ID        string    `gorm:"primaryKey;size:64" json:"id"`
-	Payload   string    `gorm:"type:mediumtext" json:"-"`
-	CreatedAt time.Time `json:"created_at"`
+	BuildStartedAt *time.Time `json:"build_started_at,omitempty"`
+	ID             string     `gorm:"primaryKey;size:64" json:"id"`
+	Payload        string     `gorm:"type:mediumtext" json:"-"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 type ImagePreparation struct {
 	HostBootID string `gorm:"size:64"`
@@ -96,6 +97,9 @@ func (s *Server) releaseSettings(c *gin.Context) {
 	manage, _ := s.auth.Enforce(c.GetString("admin_role"), "admin.manage")
 	build, _ := s.auth.Enforce(c.GetString("admin_role"), "build.write")
 	out := gin.H{"keys": keys, "can_add_key": manage && build, "github_configured": s.github != nil, "registry_mode": "agent-local", "key_count": len(keys)}
+	if s.distribution != nil {
+		out["registry_mode"] = "central-ghcr"
+	}
 	if s.github != nil {
 		out["github"] = s.github.Config()
 		out["checked_at"] = time.Now().UTC()
@@ -285,7 +289,7 @@ func (s *Server) releaseList(c *gin.Context) {
 			writeReleaseError(c, 503, "REGISTRATION_CONTENT_INVALID")
 			return
 		}
-		out = append(out, gin.H{"id": row.ID, "created_at": row.CreatedAt, "manifest": manifest})
+		out = append(out, gin.H{"id": row.ID, "created_at": row.CreatedAt, "build_started_at": row.BuildStartedAt, "manifest": manifest})
 	}
 	c.JSON(200, out)
 }
@@ -342,7 +346,7 @@ func (s *Server) releaseDetail(c *gin.Context) {
 		writeReleaseError(c, 503, "REGISTRATION_CONTENT_INVALID")
 		return
 	}
-	c.JSON(200, gin.H{"id": row.ID, "created_at": row.CreatedAt, "manifest": manifest})
+	c.JSON(200, gin.H{"id": row.ID, "created_at": row.CreatedAt, "build_started_at": row.BuildStartedAt, "manifest": manifest})
 }
 
 func (s *Server) persistBuild(tx *gorm.DB, artifact githubbuild.SignedArtifact, id int64, attempt int) (any, error) {
@@ -369,7 +373,15 @@ func (s *Server) persistBuild(tx *gorm.DB, artifact githubbuild.SignedArtifact, 
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, releaseFailure("REGISTRATION_STATUS_UNAVAILABLE")
 	}
-	row := ImageRelease{ID: manifest.ID, Payload: string(raw), CreatedAt: time.Now().UTC()}
+	var started *time.Time
+	if manifest.Build.StartedAt != "" {
+		value, err := time.Parse(time.RFC3339, manifest.Build.StartedAt)
+		if err != nil {
+			return nil, releaseFailure("REGISTRATION_CONTENT_INVALID")
+		}
+		started = &value
+	}
+	row := ImageRelease{BuildStartedAt: started, ID: manifest.ID, Payload: string(raw), CreatedAt: time.Now().UTC()}
 	if tx.Create(&row).Error != nil {
 		return nil, releaseFailure("REGISTRATION_STATUS_UNAVAILABLE")
 	}

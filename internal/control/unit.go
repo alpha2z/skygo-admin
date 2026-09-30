@@ -10,6 +10,7 @@ type UnitPlan struct {
 	Targets []UnitTarget `json:"targets"`
 }
 type UnitTarget struct {
+	SyncImageEnv    bool   `json:"sync_image_env,omitempty"`
 	Service         string `json:"service"`
 	Kind            string `json:"kind"`
 	Platform        string `json:"platform"`

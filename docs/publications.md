@@ -1,5 +1,7 @@
 # 选择式发布与 schema v3
 
+当前版本的 schema v4 升级、归档分发与镜像变量持久化见 [分发说明](distribution.md)。
+
 默认「Publish services」页面把镜像缓存准备与服务发布分开：选择主机和一个可信版本，
 勾选需要更换镜像的服务，点击 **Sync selected images**，收到新鲜回执后再点击
 **Submit for independent approval**。另一位具有 `ops.approve` 权限的管理员审批后才执行。

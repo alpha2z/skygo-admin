@@ -10,9 +10,11 @@ import (
 	"github.com/alpha2z/skygo-admin/internal/control"
 	"io"
 	"regexp"
+	"time"
 )
 
 type Build struct {
+	StartedAt    string `json:"started_at,omitempty"`
 	Repository   string `json:"repository"`
 	Workflow     string `json:"workflow"`
 	Ref          string `json:"ref"`
@@ -38,8 +40,16 @@ type SignedManifest struct {
 
 func (m Manifest) Validate() error {
 	b := m.Build
-	if m.Version != 1 || m.ID != fmt.Sprintf("ci-%d-%d", b.RunID, b.RunAttempt) || b.RunID <= 0 || b.RunAttempt < 1 || b.RunAttempt > 10000 || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`).MatchString(b.Repository) || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$`).MatchString(b.Workflow) || !regexp.MustCompile(`^refs/heads/[A-Za-z0-9][A-Za-z0-9_./-]{0,199}$`).MatchString(b.Ref) || !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(b.SourceCommit) || len(m.Images) < 1 || len(m.Images) > 6 {
+	if (m.Version != 1 && m.Version != 2) || m.ID != fmt.Sprintf("ci-%d-%d", b.RunID, b.RunAttempt) || b.RunID <= 0 || b.RunAttempt < 1 || b.RunAttempt > 10000 || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`).MatchString(b.Repository) || !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*\.ya?ml$`).MatchString(b.Workflow) || !regexp.MustCompile(`^refs/heads/[A-Za-z0-9][A-Za-z0-9_./-]{0,199}$`).MatchString(b.Ref) || !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(b.SourceCommit) || len(m.Images) < 1 || len(m.Images) > 6 {
 		return errors.New("invalid build provenance")
+	}
+	if m.Version == 2 {
+		started, err := time.Parse(time.RFC3339, b.StartedAt)
+		if err != nil || started.Year() < 2020 || started.Year() > 2100 {
+			return errors.New("invalid signed build time")
+		}
+	} else if b.StartedAt != "" {
+		return errors.New("build time requires manifest v2")
 	}
 	seen := map[string]bool{}
 	for _, i := range m.Images {

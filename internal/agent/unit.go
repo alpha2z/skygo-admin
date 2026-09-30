@@ -58,7 +58,8 @@ func validateLocalUnit(c Config) error {
 }
 
 // HMAC prevents credentials in local configuration from becoming guessable hashes.
-func (a *Agent) unitRevision(s LocalService) (string, error) {
+func (a *Agent) unitRevision(s LocalService) (string, error) { return a.unitRevisionWithEnv(s, nil) }
+func (a *Agent) unitRevisionWithEnv(s LocalService, overrides map[string][]byte) (string, error) {
 	mac := hmac.New(sha256.New, []byte(a.token))
 	b, _ := json.Marshal(struct {
 		Service LocalService
@@ -77,6 +78,9 @@ func (a *Agent) unitRevision(s LocalService) (string, error) {
 		f.Close()
 		if err != nil || len(b) > 2<<20 {
 			return "", errors.New("unit configuration unavailable")
+		}
+		if value, ok := overrides[path]; ok {
+			b = value
 		}
 		size, _ := json.Marshal(len(b))
 		mac.Write(size)
@@ -111,7 +115,7 @@ func (a *Agent) decorateUnit(s LocalService, o *control.Observation) {
 	o.InventoryRevision = revision
 	o.Capabilities = append(o.Capabilities, "control.unit.v1")
 }
-func (a *Agent) unitServices(p *control.UnitPlan) ([]LocalService, error) {
+func (a *Agent) unitServices(p *control.UnitPlan, taskID ...string) ([]LocalService, error) {
 	u := a.cfg.ControlUnit
 	if u == nil || u.ID != p.ID {
 		return nil, errors.New("unit not approved locally")
@@ -125,7 +129,10 @@ func (a *Agent) unitServices(p *control.UnitPlan) ([]LocalService, error) {
 		for _, s := range a.cfg.Services {
 			if s.ID == t.Service {
 				rev, err := a.unitRevision(s)
-				if err != nil || rev != t.Revision {
+				if len(taskID) > 0 {
+					rev, err = a.revisionForTask(s, taskID[0])
+				}
+				if err != nil || rev != t.Revision || s.SyncImageEnv != t.SyncImageEnv {
 					return nil, errors.New("unit configuration changed")
 				}
 				out = append(out, s)
@@ -187,7 +194,7 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 	} else if !os.IsNotExist(err) {
 		return r
 	}
-	services, err := a.unitServices(c.Unit)
+	services, err := a.unitServices(c.Unit, c.ID)
 	if err != nil {
 		if !recovering {
 			r.Status = "failed"
@@ -195,7 +202,14 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 		}
 		return r
 	}
+	requiresEnv := false
+	for _, target := range c.Unit.Targets {
+		requiresEnv = requiresEnv || (target.Selected && target.SyncImageEnv)
+	}
 	finish := func(status, code string, proofs []control.UnitProof) control.Result {
+		if requiresEnv && (status == "succeeded" || status == "rolled_back") && !a.envMatches(c.ID, status == "succeeded") {
+			return r
+		}
 		r.Status = status
 		r.Code = code
 		r.Unit = proofs
@@ -240,14 +254,39 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 				return finish("failed", "UNIT_PREFLIGHT_REJECTED", nil)
 			}
 		}
+		selectedServices := []LocalService{}
+		selectedImages := []string{}
+		for i, s := range services {
+			if c.Unit.Targets[i].Selected && s.SyncImageEnv {
+				selectedServices = append(selectedServices, s)
+				selectedImages = append(selectedImages, c.Unit.Targets[i].Image)
+			}
+		}
+		if err := a.planEnv(work, c.ID, selectedServices, selectedImages); err != nil {
+			return finish("failed", "UNIT_PREFLIGHT_REJECTED", nil)
+		}
+		if _, err := a.unitServices(c.Unit, c.ID); err != nil {
+			return finish("failed", "UNIT_PREFLIGHT_REJECTED", nil)
+		}
 		if !phase("stopping") {
 			return r
 		}
 		good := true
 		for i := len(services) - 1; i >= 0; i-- {
+			if _, err := a.unitServices(c.Unit, c.ID); err != nil {
+				return r
+			}
 			if d.UnitStop(work, services[i]) != nil {
 				good = false
 				break
+			}
+		}
+		if good {
+			if !phase("env-writing") {
+				return r
+			}
+			if a.applyEnv(c.ID, false) != nil {
+				good = false
 			}
 		}
 		if good {
@@ -255,6 +294,9 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 				return r
 			}
 			for i, s := range services {
+				if _, err := a.unitServices(c.Unit, c.ID); err != nil {
+					return r
+				}
 				if d.UnitStart(work, s, c.Unit.Targets[i].Image) != nil {
 					good = false
 					break
@@ -285,16 +327,22 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 	rollback, done := context.WithTimeout(ctx, 2*time.Minute)
 	defer done()
 	work = rollback
-	if _, err := a.unitServices(c.Unit); err != nil {
+	if _, err := a.unitServices(c.Unit, c.ID); err != nil {
 		return r
 	}
 	if !phase("rollback") {
+		return r
+	}
+	if a.applyEnv(c.ID, true) != nil {
 		return r
 	}
 	if p, ok := proof(true); ok {
 		return finish("rolled_back", "UNIT_RESTORED", p)
 	}
 	for i := len(services) - 1; i >= 0; i-- {
+		if _, err := a.unitServices(c.Unit, c.ID); err != nil {
+			return r
+		}
 		if d.UnitStop(work, services[i]) != nil {
 			return r
 		}
@@ -305,6 +353,9 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 		}
 	}
 	for attempts := 0; attempts < 30; attempts++ {
+		if a.applyEnv(c.ID, true) != nil {
+			return r
+		}
 		if p, ok := proof(true); ok {
 			return finish("rolled_back", "UNIT_RESTORED", p)
 		}
@@ -317,7 +368,7 @@ func (a *Agent) handleUnit(ctx context.Context, e control.Envelope, c control.Co
 	return r
 }
 func (Docker) UnitImage(ctx context.Context, s LocalService, ref, id, platform string) error {
-	image, err := inspectImage(ctx, ref)
+	image, err := preparedImage(ctx, s, ref)
 	if err != nil || image.ID != id || image.platform() != platform {
 		return errors.New("unit image unavailable")
 	}
@@ -333,7 +384,7 @@ func (Docker) UnitImage(ctx context.Context, s LocalService, ref, id, platform s
 			approved = true
 		}
 	}
-	if !approved || !image.matches(ref, platform) {
+	if !approved || image.platform() != platform {
 		return errors.New("unit image not approved")
 	}
 	return nil
@@ -349,6 +400,13 @@ func (d Docker) UnitStop(ctx context.Context, s LocalService) error {
 	return nil
 }
 func (Docker) UnitStart(ctx context.Context, s LocalService, image string) error {
+	if control.Image.MatchString(image) {
+		cached, err := preparedImage(ctx, s, image)
+		if err != nil {
+			return err
+		}
+		image = cached.ID
+	}
 	_, err := run(ctx, imageEnv(s, image), append(compose(s), "up", "-d", "--no-deps", "--pull", "never", s.ComposeService)...)
 	return err
 }

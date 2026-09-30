@@ -226,7 +226,7 @@ func (s *Server) createTask(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if req.Action == "prepare-image" {
+	if req.Action == "prepare-image" || req.Action == "image-cleanup" {
 		c.Status(400)
 		return
 	}
@@ -267,6 +267,23 @@ func (s *Server) createTask(c *gin.Context) {
 			cmd.ConfigHash = config.SHA256
 		} else if req.ConfigVersion != "" {
 			return nil, errConflict
+		}
+		if req.Action == "deploy" || req.Action == "rollback" {
+			var host Host
+			var observations []control.Observation
+			if tx.First(&host, "id = ?", def.HostID).Error != nil || json.Unmarshal([]byte(host.Observations), &observations) != nil {
+				return nil, errConflict
+			}
+			for _, o := range observations {
+				if o.Service == def.ID && o.SyncImageEnv {
+					if !hasCapability(o, "image.env.v1") {
+						return nil, errConflict
+					}
+					cmd.SyncImageEnv = true
+					cmd.InventoryRevision = o.InventoryRevision
+					cmd.PreviousImageID = o.ImageID
+				}
+			}
 		}
 		if cmd.Validate() != nil {
 			return nil, errConflict
@@ -309,6 +326,17 @@ func (s *Server) approveTask(c *gin.Context) {
 		var payload control.Command
 		if json.Unmarshal([]byte(task.Payload), &payload) != nil {
 			return nil, errConflict
+		}
+		if payload.SyncImageEnv {
+			var observations []control.Observation
+			json.Unmarshal([]byte(host.Observations), &observations)
+			ok := false
+			for _, o := range observations {
+				ok = ok || (o.Service == task.ServiceID && o.SyncImageEnv && o.InventoryRevision == payload.InventoryRevision && o.ImageID == payload.PreviousImageID)
+			}
+			if !ok {
+				return nil, errConflict
+			}
 		}
 		if task.Action == "start" || task.Action == "restart" || task.Action == "deploy" || task.Action == "rollback" {
 			for _, dependency := range def.DependsOn {
@@ -603,6 +631,19 @@ func (s *Server) commands(c *gin.Context) {
 				}
 				continue
 			}
+			if t.Status == "queued" && s.recheckCleanup(tx, t) != nil {
+				t.Status = "failed"
+				if tx.Save(&t).Error != nil {
+					return errConflict
+				}
+				if tx.Model(&ServiceRecord{}).Where("busy_task = ?", t.ID).Update("busy_task", "").Error != nil {
+					return errConflict
+				}
+				if tx.Model(&ImageCleanup{}).Where("task_id = ?", t.ID).Updates(map[string]any{"status": "failed", "code": "CLEANUP_PROTECTED"}).Error != nil {
+					return errConflict
+				}
+				continue
+			}
 			envelope, err := control.Sign(command, s.cfg.SigningKey)
 			if err != nil {
 				return err
@@ -673,6 +714,11 @@ func (s *Server) result(c *gin.Context) {
 				return errConflict
 			}
 		}
+		if req.Status == "succeeded" && t.Action == "image-cleanup" {
+			if command.Cleanup == nil || req.Code != "IMAGE_CLEANED" || req.Image != command.Image || req.ImageID != command.Cleanup.ImageID || req.Platform != command.Cleanup.Platform {
+				return errConflict
+			}
+		}
 		if req.Status == "succeeded" && t.Action == "prepare-image" {
 			if req.Image != command.Image || req.Platform != command.Platform || !validRuntimeImageID(req.ImageID) {
 				return errConflict
@@ -697,6 +743,20 @@ func (s *Server) result(c *gin.Context) {
 			if tx.Model(&ConfigRelease{}).Where("id = ?", t.ConfigVersion).Update("active", true).Error != nil {
 				return errConflict
 			}
+		}
+		if t.Action == "image-cleanup" {
+			if req.Status == "succeeded" && command.Cleanup != nil && command.Cleanup.Kind == "image" {
+				pid := preparationID(t.HostID, prepareTarget{Service: t.ServiceID, Platform: command.Cleanup.Platform, Image: command.Image})
+				if err := tx.Delete(&ImagePreparation{}, "id = ?", pid).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Model(&ImageCleanup{}).Where("task_id = ?", t.ID).Updates(map[string]any{"status": req.Status, "code": req.Code}).Error; err != nil {
+				return err
+			}
+		}
+		if err := s.finishDelivery(tx, t, req); err != nil {
+			return err
 		}
 		if err := s.publicationState(tx, t, t.Status, req.Code); err != nil {
 			return err

@@ -47,13 +47,16 @@ jobs:
           case "$PLATFORM" in linux/amd64|linux/arm64) ;; *) exit 1;; esac
           namespace=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
           export namespace
+          build_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          export BUILD_STARTED="$build_started"
+          build_version=$(TZ=Asia/Tokyo date -d "$build_started" +%Y%m%d-%H%M%S)-${PLATFORM#linux/}
           for component in admin-api admin-web ops-agent; do
             if [ "$COMPONENT" != all ] && [ "$COMPONENT" != "$component" ]; then continue; fi
             case "$component" in admin-api) recipe=api;; admin-web) recipe=web;; ops-agent) recipe=agent;; esac
             if [ "$PUBLISH" = true ]; then
-              docker buildx build --platform "$PLATFORM" -f "deploy/Dockerfile.$recipe" -t "ghcr.io/$namespace/$component:$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" --push --metadata-file "$RUNNER_TEMP/metadata-$component.json" .
+              docker buildx build --platform "$PLATFORM" --label "org.opencontainers.image.created=$build_started" --label "io.skygo-admin.build.version=$build_version" --label "io.skygo-admin.build.timezone=Asia/Tokyo" -f "deploy/Dockerfile.$recipe" -t "ghcr.io/$namespace/$component:$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" -t "ghcr.io/$namespace/$component:$build_version" --push --metadata-file "$RUNNER_TEMP/metadata-$component.json" .
             else
-              docker buildx build --platform "$PLATFORM" -f "deploy/Dockerfile.$recipe" -t "skygo-admin/$component:$GITHUB_SHA" --output "type=docker,dest=$component-image.tar" .
+              docker buildx build --platform "$PLATFORM" --label "org.opencontainers.image.created=$build_started" --label "io.skygo-admin.build.version=$build_version" --label "io.skygo-admin.build.timezone=Asia/Tokyo" -f "deploy/Dockerfile.$recipe" -t "skygo-admin/$component:$build_version" --output "type=docker,dest=$component-image.tar" .
             fi
           done
           if [ "$PUBLISH" = true ]; then

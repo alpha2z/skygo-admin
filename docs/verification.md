@@ -111,3 +111,41 @@ new API contract, local-only configuration and synthetic test fixtures. No priva
 source history, deployment credential, business protocol or gameplay data was
 copied. Scans report locations/categories and never matching secret values;
 passing scans is not a mathematical guarantee that all sensitive content is absent.
+
+## Image distribution synchronization — schema v4, 2026-09-30
+
+Local checks for this update include:
+
+- Physical v3-to-v4 MySQL migration with a retained legacy task receipt; optional
+  central preparation; task-scoped archive authorization and HTTP Range; separate
+  controller/Agent attempts; stale progress rejection; independent cleanup
+  approval; reference changes blocking dispatch; successful central cleanup.
+- Registry transport tests for platform/config/layer identity, corrupt layers,
+  immutable caching, bounded capacity, resumption and shared/unknown blob indexes.
+  Agent archive tests cover Range resume/fallback, full archive hashes, structural
+  validation and protected stopped-container references.
+- Real Agent archive preparation in an isolated Linux container using a synthetic
+  authenticated HTTP server: partial-file resume, verified Docker import, receipt
+  replay without another transfer, deployment identity lookup and managed cleanup.
+  Docker storage is mounted read-only for capacity checks; no production config is
+  used. Run this test with `python3 scripts/archive-smoke.py`.
+- Real Docker service fixtures: direct cache preparation changes neither containers
+  nor configuration; API-only and paired recovery-unit publication; selected image
+  variable persistence; health-failure and interrupted-update restoration of
+  original images/environment; ordinary-service environment persistence, replay
+  and rollback following a simulated lost verification result.
+- Full Go suite, internal race suite, 12 frontend tests, static analysis and release
+  builds. UI tests cover explicit refresh, preserved bookmarks, unknown counts,
+  JST rendering, module availability and all entrypoint asset references.
+
+The browser runtime reported no connected browser. Desktop/mobile rendering and
+interactive disconnect/re-login flows remain unverified. Live GHCR/GitHub/SMTP
+credentials were not used; Registry HTTP fixtures and local Docker establish local
+transport/runtime evidence only. CI execution and production deployment are not
+claimed. Local container execution is arm64; amd64 service binaries are cross-built.
+
+The new transport helpers were extracted by a reviewed file allowlist and adapted
+to public image contracts. Tests use synthetic components and credentials generated
+at runtime. Source history and private deployment files were not copied. Custom
+policy scans, redacted secret scans and owned-image-file inspection accompany the
+source archive, four Linux binaries, three local review images and their manifests.

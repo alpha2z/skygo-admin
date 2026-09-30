@@ -19,8 +19,11 @@ func (s *Server) expireTasks(ctx context.Context) error {
 		if err := tx.Model(&Publication{}).Where("status = ? AND expires_at <= ?", "pending", time.Now().UTC()).Update("status", "expired").Error; err != nil {
 			return err
 		}
+		if err := tx.Model(&ImageCleanup{}).Where("status IN ? AND task_id = ? AND expires_at <= ?", []string{"pending", "queued"}, "", time.Now().UTC()).Update("status", "expired").Error; err != nil {
+			return err
+		}
 		var tasks []Task
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("status IN ? AND expires_at <= ?", []string{"pending", "queued", "dispatched"}, time.Now().UTC()).Limit(200).Find(&tasks).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("status IN ? AND expires_at <= ?", []string{"pending", "queued", "dispatched", "preparing"}, time.Now().UTC()).Limit(200).Find(&tasks).Error; err != nil {
 			return err
 		}
 		for _, task := range tasks {
@@ -34,6 +37,19 @@ func (s *Server) expireTasks(ctx context.Context) error {
 			}
 			if err := s.publicationState(tx, task, task.Status, "EXECUTION_EXPIRED"); err != nil {
 				return err
+			}
+			if task.DeliveryID != "" {
+				if err := tx.Model(&ImageAttempt{}).Where("delivery_id = ? AND finished_at IS NULL", task.DeliveryID).Updates(map[string]any{"status": task.Status, "finished_at": time.Now().UTC(), "reason": "COMMAND_EXPIRED"}).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&ImageDelivery{}).Where("id = ? AND task_id = ?", task.DeliveryID, task.ID).Update("status", task.Status).Error; err != nil {
+					return err
+				}
+			}
+			if task.Action == "image-cleanup" {
+				if err := tx.Model(&ImageCleanup{}).Where("task_id = ?", task.ID).Update("status", task.Status).Error; err != nil {
+					return err
+				}
 			}
 			if err := tx.Save(&task).Error; err != nil {
 				return err

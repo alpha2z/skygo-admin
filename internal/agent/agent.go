@@ -23,6 +23,8 @@ import (
 )
 
 type LocalService struct {
+	SyncImageEnv   bool     `json:"sync_image_env,omitempty"`
+	CacheDir       string   `json:"-"`
 	ID             string   `json:"id"`
 	ComposeFile    string   `json:"compose_file"`
 	EnvFile        string   `json:"env_file"`
@@ -93,12 +95,15 @@ func New(c Config, d Driver) (*Agent, error) {
 	if err != nil || len(key) != ed25519.PublicKeySize {
 		return nil, errors.New("invalid public key")
 	}
+	for i := range c.Services {
+		c.Services[i].CacheDir = filepath.Join(c.StateDir, "images")
+	}
 	seen := map[string]bool{}
 	for _, s := range c.Services {
 		if !control.Identifier.MatchString(s.ID) || seen[s.ID] || !filepath.IsAbs(s.ComposeFile) || !control.Identifier.MatchString(s.Project) || !control.Identifier.MatchString(s.ComposeService) || !envName(s.ImageVariable) {
 			return nil, errors.New("invalid local service")
 		}
-		if s.EnvFile != "" && !filepath.IsAbs(s.EnvFile) {
+		if (s.EnvFile != "" && !filepath.IsAbs(s.EnvFile)) || (s.SyncImageEnv && s.EnvFile == "") {
 			return nil, errors.New("absolute env file required")
 		}
 		if s.ConfigPath != "" && !filepath.IsAbs(s.ConfigPath) {
@@ -189,6 +194,14 @@ func (a *Agent) run(ctx context.Context) {
 				o, err := a.driver.Observe(c, s)
 				cancel()
 				if err == nil {
+					if _, ok := a.driver.(Docker); ok {
+						o.Capabilities = append(o.Capabilities, "image.archive.v1", "image.cleanup.v1")
+					}
+					o.SyncImageEnv = s.SyncImageEnv
+					if s.SyncImageEnv {
+						o.Capabilities = append(o.Capabilities, "image.env.v1")
+						o.InventoryRevision, _ = a.unitRevision(s)
+					}
 					a.decorateUnit(s, &o)
 					observations = append(observations, o)
 				}
@@ -203,6 +216,7 @@ func (a *Agent) run(ctx context.Context) {
 	}()
 	defer func() { <-heartbeatDone }()
 	a.recoverUnits(ctx)
+	a.recoverEnvDeployments(ctx)
 	for {
 		var commands []control.Envelope
 		if a.request(ctx, "GET", "/commands", nil, &commands) == nil {
@@ -249,6 +263,9 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 	if !found {
 		return result
 	}
+	if (cmd.Action == "deploy" || cmd.Action == "rollback") && (service.SyncImageEnv || cmd.SyncImageEnv) {
+		return a.handleEnvDeployment(ctx, e, cmd, service)
+	}
 	path := filepath.Join(a.cfg.StateDir, cmd.ID+".json")
 	hash := control.Digest(e.Payload)
 	b, err := os.ReadFile(path)
@@ -262,8 +279,8 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 			return old.Result
 		}
 		if cmd.Action == "prepare-image" && time.Now().Before(cmd.ExpiresAt) { // Cache population is repeatable; never repeat a service mutation.
-			work, cancel := context.WithTimeout(ctx, 2*time.Minute)
-			result = a.driver.Execute(work, service, cmd)
+			work, cancel := context.WithTimeout(ctx, 30*time.Minute)
+			result = a.execute(work, service, cmd)
 			cancel()
 			result.ID = cmd.ID
 			old.Result = result
@@ -294,9 +311,13 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 		result.Code = "JOURNAL_UNAVAILABLE"
 		return result
 	}
-	execution, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	duration := 2 * time.Minute
+	if cmd.Action == "prepare-image" {
+		duration = 30 * time.Minute
+	}
+	execution, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
-	result = a.driver.Execute(execution, service, cmd)
+	result = a.execute(execution, service, cmd)
 	result.ID = cmd.ID
 	rec.Result = result
 	if a.save(path, rec) != nil {

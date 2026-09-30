@@ -30,7 +30,7 @@ const PublicationUI = (() => {
   for(const p of records){const row=node('p');row.append(button(p.id+' · '+p.status,async()=>{s.request=p.id;s.host=p.host_id;s.release=p.release_id;try{s.selected=JSON.parse(p.selection);}catch{s.selected=[];}update();}));historyPanel.append(row);}
   panel.append(historyPanel);
   const releases=await api('releases');if(!isCurrent())return;
-  const version=node('select');version.append(new Option('Choose trusted version',''));for(const r of releases)version.append(new Option(r.id+' · '+r.manifest.build.ref+' · '+r.manifest.build.source_commit.slice(0,12),r.id));
+  const version=node('select');version.append(new Option('Choose trusted version',''));for(const r of releases)version.append(new Option(DistributionUI.buildTime(r.build_started_at)+' · '+r.id+' · '+r.manifest.build.ref+' · '+r.manifest.build.source_commit.slice(0,12),r.id));
   if(s.release&&!releases.some(r=>r.id===s.release)){const old=await api('releases/'+encodeURIComponent(s.release));version.append(new Option(old.id,old.id));}
   version.value=s.release;version.onchange=()=>{s.release=version.value;s.selected=null;intentChanged();};const versionLabel=node('label','Trusted version');versionLabel.append(version);panel.append(versionLabel);
   if(!s.release){panel.append(node('p','Register a signed build in Versions & upgrades, then select it here.'));return;}

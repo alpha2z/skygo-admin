@@ -39,3 +39,26 @@ func TestBuildSignatureAndComponentBoundaries(t *testing.T) {
 		t.Fatal("attempt identity mismatch accepted")
 	}
 }
+
+func TestSignedBuildTimeV2AndHistoricalV1(t *testing.T) {
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	m := fixture()
+	m.Version = 2
+	m.Build.StartedAt = "2026-09-30T00:01:02Z"
+	signed, err := Sign(m, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Verify(signed, []ed25519.PublicKey{pub})
+	if err != nil || decoded.Build.StartedAt != m.Build.StartedAt {
+		t.Fatal("signed time lost")
+	}
+	m.Build.StartedAt = ""
+	if m.Validate() == nil {
+		t.Fatal("v2 unknown build time accepted")
+	}
+	m.Version = 1
+	if m.Validate() != nil {
+		t.Fatal("legacy v1 rejected")
+	}
+}

@@ -171,7 +171,7 @@ func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.
 		}
 		target.TaskID = task.ID
 		switch {
-		case (task.Status == "queued" || task.Status == "dispatched") && now.Before(task.ExpiresAt):
+		case (task.Status == "queued" || task.Status == "dispatched" || task.Status == "preparing") && now.Before(task.ExpiresAt):
 			target.Status = "working"
 			busy++
 		case task.Status == "succeeded" && p.HostBootID == h.BootID:
@@ -286,7 +286,7 @@ func (s *Server) prepareAdminImages(c *gin.Context) {
 			}
 			raw, _ := json.Marshal(command)
 			task := Task{ID: id, HostID: h.ID, ServiceID: t.Service, Action: command.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: now, ExpiresAt: command.ExpiresAt}
-			if tx.Create(&task).Error != nil {
+			if s.queuePreparation(tx, &task, m.ID, h).Error != nil {
 				return nil, errConflict
 			}
 			if tx.Save(&ImagePreparation{ID: preparationID(h.ID, t), TaskID: id, HostBootID: h.BootID}).Error != nil {

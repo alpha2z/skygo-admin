@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -27,9 +28,11 @@ type Config struct {
 	TokenFile     string   `json:"token_file,omitempty"`
 }
 type Client struct {
-	config Config
-	http   *http.Client
-	origin string
+	messageMu sync.Mutex
+	messages  map[string]commitMessageEntry
+	config    Config
+	http      *http.Client
+	origin    string
 }
 type Error struct {
 	Code   string
@@ -137,6 +140,12 @@ func (c *Client) path(suffix string) string {
 }
 
 type Run struct {
+	StartedAt     *time.Time `json:"run_started_at,omitempty"`
+	CommitMessage string     `json:"commit_message"`
+	HeadCommit    *struct {
+		ID      string `json:"id"`
+		Message string `json:"message"`
+	} `json:"head_commit,omitempty"`
 	Attempt    int       `json:"run_attempt"`
 	ID         int64     `json:"id"`
 	Number     int64     `json:"run_number"`
@@ -154,6 +163,8 @@ func (c *Client) Runs(ctx context.Context) ([]Run, error) { return c.runs(ctx, 1
 // SyncRuns bounds discovery to the latest 150 runs.
 func (c *Client) SyncRuns(ctx context.Context) ([]Run, error) { return c.runs(ctx, 5) }
 func (c *Client) runs(ctx context.Context, pages int) ([]Run, error) {
+	messageContext, done := context.WithTimeout(ctx, 3*time.Second)
+	defer done()
 	runs := []Run{}
 	for page := 1; page <= pages; page++ {
 		var response struct {
@@ -179,6 +190,10 @@ func (c *Client) runs(ctx context.Context, pages int) ([]Run, error) {
 			}
 			// Build links locally rather than trusting API-provided arbitrary URLs.
 			run.HTMLURL = "https://github.com/" + c.config.Repository + "/actions/runs/" + url.PathEscape(jsonNumber(run.ID))
+			if pages == 1 {
+				run.CommitMessage = c.commitMessage(messageContext, run)
+			}
+			run.HeadCommit = nil
 			runs = append(runs, run)
 		}
 		if len(response.Runs) < 30 {
@@ -218,4 +233,50 @@ func (c *Client) Dispatch(ctx context.Context, ref, service, platform string) er
 		inputs["publish"] = "true"
 	}
 	return c.request(ctx, "POST", c.path("/dispatches"), map[string]any{"ref": ref, "inputs": inputs}, nil)
+}
+
+type commitMessageEntry struct {
+	Message string
+	Expires time.Time
+}
+
+func (c *Client) commitMessage(ctx context.Context, r Run) string {
+	if !commitPattern.MatchString(r.Commit) {
+		return ""
+	}
+	trim := func(s string) string {
+		if len(s) > 2048 {
+			s = s[:2048]
+		}
+		return s
+	}
+	if r.HeadCommit != nil && r.HeadCommit.ID == r.Commit {
+		return trim(r.HeadCommit.Message)
+	}
+	c.messageMu.Lock()
+	entry, ok := c.messages[r.Commit]
+	c.messageMu.Unlock()
+	if ok && time.Now().Before(entry.Expires) {
+		return entry.Message
+	}
+	if ctx.Err() != nil {
+		return ""
+	}
+	var response struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+		} `json:"commit"`
+	}
+	if c.request(ctx, "GET", "/repos/"+c.config.Repository+"/commits/"+r.Commit, nil, &response) != nil || response.SHA != r.Commit {
+		return ""
+	}
+	message := trim(response.Commit.Message)
+	c.messageMu.Lock()
+	defer c.messageMu.Unlock()
+	if c.messages == nil || len(c.messages) >= 256 {
+		c.messages = map[string]commitMessageEntry{}
+	}
+	c.messages[r.Commit] = commitMessageEntry{Message: message, Expires: time.Now().Add(time.Hour)}
+	return message
 }

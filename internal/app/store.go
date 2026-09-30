@@ -37,6 +37,7 @@ type ServiceRecord struct {
 	BusyTask   string `gorm:"size:64" json:"busy_task"`
 }
 type Task struct {
+	DeliveryID    string     `gorm:"size:64;index" json:"delivery_id,omitempty"`
 	PublicationID string     `gorm:"size:64;index" json:"publication_id,omitempty"`
 	FinishedAt    *time.Time `json:"finished_at,omitempty"`
 	ID            string     `gorm:"primaryKey;size:64" json:"id"`
@@ -73,20 +74,20 @@ type GitHubDispatch struct {
 func Migrate(db *gorm.DB) error {
 	if db.Migrator().HasTable(&SchemaVersion{}) {
 		var existing SchemaVersion
-		if err := db.First(&existing, 1).Error; err == nil && existing.Version > 3 {
+		if err := db.First(&existing, 1).Error; err == nil && existing.Version > 4 {
 			return errors.New("newer schema detected; downgrade refused")
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("schema version unavailable")
 		}
 	}
-	if err := db.AutoMigrate(&SchemaVersion{}, &AdminUser{}, &AdminBootstrapState{}, &RecoveryCode{}, &RolePolicy{}, &Audit{}, &AuditLock{}, &AdminLoginIP{}, &AdminLoginCaptcha{}, &Session{}, &Host{}, &ServiceRecord{}, &Task{}, &ConfigRelease{}, &GitHubDispatch{}, &BuildTrustKey{}, &ImageRelease{}, &ImagePreparation{}, &Publication{}, &confirmation.Challenge{}, &confirmation.Rate{}); err != nil {
+	if err := db.AutoMigrate(&SchemaVersion{}, &AdminUser{}, &AdminBootstrapState{}, &RecoveryCode{}, &RolePolicy{}, &Audit{}, &AuditLock{}, &AdminLoginIP{}, &AdminLoginCaptcha{}, &Session{}, &Host{}, &ServiceRecord{}, &Task{}, &ConfigRelease{}, &GitHubDispatch{}, &BuildTrustKey{}, &ImageRelease{}, &ImagePreparation{}, &Publication{}, &ImageDelivery{}, &ImageAttempt{}, &ImageCache{}, &ImageCleanup{}, &confirmation.Challenge{}, &confirmation.Rate{}); err != nil {
 		return errors.New("schema migration failed")
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&AuditLock{ID: 1}).Error; err != nil {
 			return err
 		}
-		return tx.Save(&SchemaVersion{ID: 1, Version: 3}).Error
+		return tx.Save(&SchemaVersion{ID: 1, Version: 4}).Error
 	})
 }
 func (s *Server) appendAudit(tx *gorm.DB, operator uint32, action, target string, detail any) error {

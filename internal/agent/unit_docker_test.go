@@ -41,6 +41,15 @@ func TestDockerRecoveryUnit(t *testing.T) {
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	settings.Atomic(filepath.Join(dir, "token"), []byte(strings.Repeat("t", 40)))
 	settings.Atomic(filepath.Join(dir, "public"), []byte(base64.StdEncoding.EncodeToString(pub)))
+	envFile := filepath.Join(dir, "managed.env")
+	originalEnv := "# synthetic managed images\n" + f.API.ImageVariable + "=" + f.Images[0] + "\n" + f.Web.ImageVariable + "=" + f.Images[0] + "\nUNRELATED=preserved\n"
+	if os.WriteFile(envFile, []byte(originalEnv), 0600) != nil {
+		t.Fatal("env fixture")
+	}
+	f.API.EnvFile = envFile
+	f.Web.EnvFile = envFile
+	f.API.SyncImageEnv = true
+	f.Web.SyncImageEnv = true
 	cfg := Config{HostID: "host", APIURL: "http://127.0.0.1:1", AllowLoopbackHTTP: true, TokenFile: filepath.Join(dir, "token"), PublicKeyFile: filepath.Join(dir, "public"), StateDir: filepath.Join(dir, "state"), Services: []LocalService{f.API, f.Web}, ControlUnit: &LocalUnit{ID: "admin", API: f.API.ID, Web: f.Web.ID}}
 	a, err := New(cfg, d)
 	if err != nil {
@@ -57,7 +66,7 @@ func TestDockerRecoveryUnit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			target := control.UnitTarget{Service: s.ID, Kind: []string{"admin-api", "admin-web"}[i], Platform: o.Platform, PreviousImageID: o.ImageID, Image: o.ImageID, ImageID: o.ImageID, Revision: rev}
+			target := control.UnitTarget{SyncImageEnv: s.SyncImageEnv, Service: s.ID, Kind: []string{"admin-api", "admin-web"}[i], Platform: o.Platform, PreviousImageID: o.ImageID, Image: o.ImageID, ImageID: o.ImageID, Revision: rev}
 			if i == 0 || selectedBoth {
 				r := d.Execute(ctx, s, control.Command{Action: "prepare-image", Image: image, Platform: o.Platform})
 				if r.Status != "succeeded" {
@@ -91,6 +100,10 @@ func TestDockerRecoveryUnit(t *testing.T) {
 	r := a.Handle(ctx, e)
 	if r.Status != "succeeded" {
 		t.Fatal("API-only publication", r.Code)
+	}
+	rawEnv, _ := os.ReadFile(envFile)
+	if !strings.Contains(string(rawEnv), f.API.ImageVariable+"="+f.Images[1]) || !strings.Contains(string(rawEnv), f.Web.ImageVariable+"="+f.Images[0]) || !strings.Contains(string(rawEnv), "UNRELATED=preserved") {
+		t.Fatal("selected image env not persisted correctly")
 	}
 	if started(f.Web) == before {
 		t.Fatal("unselected Web did not restart")
@@ -155,11 +168,18 @@ func TestDockerRecoveryUnit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rawEnv, _ = os.ReadFile(envFile)
+	if string(rawEnv) != originalEnv {
+		t.Fatal("failed publication did not restore env")
+	}
 	// Persist an interrupted transition and recover without any controller available.
 	c = makeCommand("offline-recovery", true, f.Images[1])
 	e, _ = control.Sign(c, key)
 	if a.saveUnit(filepath.Join(cfg.StateDir, c.ID+".unit.json"), unitJournal{Envelope: e, Phase: "starting"}) != nil {
 		t.Fatal("journal fixture")
+	}
+	if a.planEnv(ctx, c.ID, cfg.Services, []string{f.Images[1], f.Images[1]}) != nil || a.applyEnv(c.ID, false) != nil {
+		t.Fatal("interrupted env write fixture")
 	}
 	if d.UnitStop(ctx, f.Web) != nil || d.UnitStop(ctx, f.API) != nil || d.UnitStart(ctx, f.API, f.Images[1]) != nil {
 		t.Fatal("interruption fixture")
@@ -172,6 +192,10 @@ func TestDockerRecoveryUnit(t *testing.T) {
 	if fresh.Handle(ctx, e).Status != "rolled_back" {
 		t.Fatal("offline recovery failed")
 	}
+	rawEnv, _ = os.ReadFile(envFile)
+	if string(rawEnv) != originalEnv {
+		t.Fatal("offline recovery did not restore env")
+	}
 	beforeAPI, beforeWeb = started(f.API), started(f.Web)
 	again, err := New(cfg, d)
 	if err != nil {
@@ -181,4 +205,63 @@ func TestDockerRecoveryUnit(t *testing.T) {
 	if started(f.API) != beforeAPI || started(f.Web) != beforeWeb {
 		t.Fatal("recovery replay changed containers")
 	}
+	// Ordinary approved deployments use the same durable environment ownership.
+	a, err = New(cfg, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := a.cfg.Services[0]
+	observed, _ := d.Observe(ctx, service)
+	revision, _ := a.unitRevision(service)
+	normal := control.Command{Version: 1, ID: "env-single", HostID: cfg.HostID, Service: service.ID, Action: "deploy", Image: f.Images[1], SyncImageEnv: true, InventoryRevision: revision, PreviousImageID: observed.ImageID, ExpiresAt: time.Now().Add(time.Minute)}
+	signed, err := control.Sign(normal, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := a.Handle(ctx, signed); result.Status != "succeeded" {
+		t.Fatal("ordinary env deployment failed", result.Code)
+	}
+	persisted, _ := os.ReadFile(envFile)
+	if !strings.Contains(string(persisted), service.ImageVariable+"="+f.Images[1]) {
+		t.Fatal("ordinary env not persisted")
+	}
+	stamp := started(service)
+	a, err = New(cfg, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.recoverEnvDeployments(ctx)
+	if started(service) != stamp {
+		t.Fatal("ordinary completed deployment repeated")
+	}
+	observed, _ = d.Observe(ctx, service)
+	revision, _ = a.unitRevision(service)
+	normal.ID = "env-single-rollback"
+	normal.Image = f.Images[0]
+	normal.InventoryRevision = revision
+	normal.PreviousImageID = observed.ImageID
+	signed, err = control.Sign(normal, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.driver = failedDeployment{Docker: d}
+	if result := a.Handle(ctx, signed); result.Code != "DEPLOYMENT_ROLLED_BACK" {
+		t.Fatal("ordinary failure not restored", result.Code)
+	}
+	restored, _ := os.ReadFile(envFile)
+	if string(restored) != string(persisted) {
+		t.Fatal("ordinary rollback lost old env")
+	}
+
+}
+
+type failedDeployment struct{ Docker }
+
+func (d failedDeployment) Execute(ctx context.Context, s LocalService, c control.Command) control.Result {
+	r := d.Docker.Execute(ctx, s, c)
+	if c.Action == "deploy" && r.Status == "succeeded" {
+		r.Status = "uncertain"
+		r.Code = "SYNTHETIC_LOST_VERIFICATION"
+	}
+	return r
 }

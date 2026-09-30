@@ -1,0 +1,4 @@
+const{test}=require('node:test');const assert=require('node:assert/strict');const ui=require('./distribution.js');
+test('build time is explicitly JST, never registration time or local timezone',()=>{assert.equal(ui.buildTime(null),'Build time unknown');assert.equal(ui.buildTime('invalid'),'Build time unknown');assert.equal(ui.buildTime('2026-09-30T00:01:02Z'),'2026-09-30 09:01:02 JST')});
+test('unknown transfer counts do not become zero',()=>{assert.equal(ui.bytes(null),'unknown');assert.equal(ui.bytes(undefined),'unknown');assert.equal(ui.bytes(0),'0 B')});
+test('page refresh remains explicit and new modules are packaged',()=>{const fs=require('node:fs'),path=require('node:path');const app=fs.readFileSync(path.join(__dirname,'app.js'),'utf8');assert.ok(!app.includes('setInterval('));assert.ok(app.includes("typeof DistributionUI!=='undefined'"));assert.ok(fs.readFileSync(path.join(__dirname,'index.html'),'utf8').includes('/distribution.js'))});

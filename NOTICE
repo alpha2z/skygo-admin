@@ -2,7 +2,8 @@ Skygo Admin
 Copyright 2026 Skygo Admin contributors
 
 This project contains adapted generic authentication, captcha, security,
-operation-confirmation and GitHub workflow client code. The originating
+operation-confirmation, GitHub workflow client, immutable image transport,
+archive verification and cache-cleanup code. The originating
 administration application includes code attributed to go-admin-team under
 MIT; its notice is preserved in LICENSE.go-admin. Newly authored code and
 modifications in this project are licensed under Apache-2.0.

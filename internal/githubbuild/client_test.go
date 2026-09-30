@@ -77,3 +77,34 @@ func TestSyncRunsBoundedPagination(t *testing.T) {
 		t.Fatal("interactive query changed")
 	}
 }
+
+func TestCommitMessageCacheAndBuildTime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	os.WriteFile(path, []byte(strings.Repeat("synthetic-", 5)), 0600)
+	client, err := New(Config{Repository: "example/tooling", Workflow: "build.yml", AllowedRefs: []string{"main"}, TokenFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := 0
+	sha := strings.Repeat("a", 40)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/commits/") {
+			commits++
+			w.Write([]byte(`{"sha":"` + sha + `","commit":{"message":"Synthetic <plain> text"}}`))
+			return
+		}
+		w.Write([]byte(`{"workflow_runs":[{"id":1,"head_branch":"main","head_sha":"` + sha + `","run_attempt":1,"run_started_at":"2026-09-30T00:01:02Z"}]}`))
+	}))
+	defer server.Close()
+	client.origin = server.URL
+	for i := 0; i < 2; i++ {
+		runs, err := client.Runs(context.Background())
+		if err != nil || len(runs) != 1 || runs[0].StartedAt == nil || runs[0].CommitMessage != "Synthetic <plain> text" {
+			t.Fatal("build metadata missing")
+		}
+	}
+	if commits != 1 {
+		t.Fatal("immutable commit cache not reused")
+	}
+}

@@ -29,17 +29,23 @@ type Service struct {
 	ControlPlane bool     `json:"control_plane"`
 }
 type Command struct {
-	Unit       *UnitPlan       `json:"unit,omitempty"`
-	Platform   string          `json:"platform,omitempty"`
-	Version    int             `json:"version"`
-	ID         string          `json:"id"`
-	HostID     string          `json:"host_id"`
-	Service    string          `json:"service"`
-	Action     string          `json:"action"`
-	Image      string          `json:"image,omitempty"`
-	Config     json.RawMessage `json:"config,omitempty"`
-	ConfigHash string          `json:"config_hash,omitempty"`
-	ExpiresAt  time.Time       `json:"expires_at"`
+	SyncImageEnv      bool            `json:"sync_image_env,omitempty"`
+	InventoryRevision string          `json:"inventory_revision,omitempty"`
+	PreviousImageID   string          `json:"previous_image_id,omitempty"`
+	Cleanup           *Cleanup        `json:"cleanup,omitempty"`
+	Archive           *Archive        `json:"archive,omitempty"`
+	DeliveryID        string          `json:"delivery_id,omitempty"`
+	Unit              *UnitPlan       `json:"unit,omitempty"`
+	Platform          string          `json:"platform,omitempty"`
+	Version           int             `json:"version"`
+	ID                string          `json:"id"`
+	HostID            string          `json:"host_id"`
+	Service           string          `json:"service"`
+	Action            string          `json:"action"`
+	Image             string          `json:"image,omitempty"`
+	Config            json.RawMessage `json:"config,omitempty"`
+	ConfigHash        string          `json:"config_hash,omitempty"`
+	ExpiresAt         time.Time       `json:"expires_at"`
 }
 type Envelope struct {
 	Payload   json.RawMessage `json:"payload"`
@@ -58,6 +64,7 @@ type Result struct {
 	ConfigHash string      `json:"config_hash,omitempty"`
 }
 type Observation struct {
+	SyncImageEnv      bool     `json:"sync_image_env,omitempty"`
 	Running           bool     `json:"running"`
 	UnitID            string   `json:"unit_id,omitempty"`
 	ControlKind       string   `json:"control_kind,omitempty"`
@@ -81,6 +88,18 @@ func (c Command) Validate() error {
 	if c.Version != Version || !Identifier.MatchString(c.ID) || !Identifier.MatchString(c.HostID) || !Identifier.MatchString(c.Service) || c.ExpiresAt.IsZero() {
 		return errors.New("invalid command identity")
 	}
+	if c.SyncImageEnv && ((c.Action != "deploy" && c.Action != "rollback") || len(c.InventoryRevision) != 64 || !ImageIdentity(c.PreviousImageID)) {
+		return errors.New("invalid image environment scope")
+	}
+	if c.Cleanup != nil && c.Action != "image-cleanup" {
+		return errors.New("unexpected cleanup scope")
+	}
+	if c.Archive != nil && (c.Action != "prepare-image" || !ImageIdentity("sha256:"+c.Archive.SHA256) || !ImageIdentity(c.Archive.ImageID) || c.Archive.Size <= 0 || c.Archive.Size > 8<<30) {
+		return errors.New("invalid archive attachment")
+	}
+	if c.DeliveryID != "" && (c.Action != "prepare-image" || !Identifier.MatchString(c.DeliveryID)) {
+		return errors.New("invalid delivery identity")
+	}
 	if c.Action != "prepare-image" && c.Platform != "" {
 		return errors.New("unexpected platform")
 	}
@@ -88,6 +107,10 @@ func (c Command) Validate() error {
 		return errors.New("unexpected unit")
 	}
 	switch c.Action {
+	case "image-cleanup":
+		if c.Cleanup == nil || !Image.MatchString(c.Image) || len(c.Config) > 0 || !ImageIdentity(c.Cleanup.ImageID) || (c.Cleanup.Platform != "linux/amd64" && c.Cleanup.Platform != "linux/arm64") || (c.Cleanup.Kind != "image" && c.Cleanup.Kind != "archive") || (c.Cleanup.Kind == "archive" && !ImageIdentity("sha256:"+c.Cleanup.SHA256)) {
+			return errors.New("invalid cleanup scope")
+		}
 	case "control-unit":
 		if c.Image != "" || len(c.Config) > 0 || c.ConfigHash != "" || c.Unit == nil {
 			return errors.New("invalid unit payload")

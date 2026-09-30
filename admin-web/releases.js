@@ -67,7 +67,7 @@ const ReleaseUI = (() => {
         const key = `register-${run.id}-${run.run_attempt}`, reg = run.registration || {status: 'unknown'};
         if (checking.has(key) && ['registered','unregistered'].includes(reg.status)) { uncertain.delete(key); checking.delete(key); }
         const box = card(`Build #${run.run_number} · attempt ${run.run_attempt || '?'}`);
-        box.append(el('p', `${run.head_branch} · ${run.head_sha}`), el('p', `Build: ${run.status} / ${run.conclusion || 'pending'}`), el('strong', `Registration: ${reg.status}`, reg.status === 'registered' ? 'status-ready' : ''));
+        box.append(el('p', DistributionUI.buildTime(run.run_started_at)),el('p',run.commit_message||'Commit message unavailable'),el('p', `${run.head_branch} · ${run.head_sha}`), el('p', `Build: ${run.status} / ${run.conclusion || 'pending'}`), el('strong', `Registration: ${reg.status}`, reg.status === 'registered' ? 'status-ready' : ''));
         if (reg.status === 'registered') {
           box.append(el('p', `${reg.release_id} · ${reg.registered_at}`));
           for (const image of reg.images || []) box.append(el('p', `${image.service} · ${image.platform}`));

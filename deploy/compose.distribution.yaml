@@ -1,0 +1,9 @@
+# Optional override. Provision the private config and token outside the checkout.
+services:
+  admin-api:
+    environment:
+      ADMIN_DISTRIBUTION_CONFIG: /etc/skygo-admin/distribution.json
+    volumes:
+      - ../runtime/distribution.json:/etc/skygo-admin/distribution.json:ro
+      - ../runtime/registry-token:/etc/skygo-admin/private/registry-token:ro
+      - ../runtime/distribution-cache:/var/lib/skygo-admin/distribution

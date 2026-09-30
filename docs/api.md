@@ -56,3 +56,5 @@ checked by the agent. Results are idempotent; conflicting terminal results are r
 The signed release and image-preparation endpoints are documented in
 [publication workflow and schema v3](publications.md). A prepared image is not an approved
 service upgrade.
+
+See [schema v4 distribution](distribution.md) for delivery attempts, cleanup and optional Agent capabilities.

@@ -172,12 +172,15 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 			return r
 		}
 		env = imageEnv(s, c.Image)
-		cached, cacheErr := inspectImage(ctx, c.Image)
-		if cacheErr != nil || !cached.matches(c.Image, cached.platform()) {
+		cached, cacheErr := preparedImage(ctx, s, c.Image)
+		if cacheErr != nil {
 			if _, err := run(ctx, env, "pull", c.Image); err != nil {
 				r.Code = "IMAGE_PULL_FAILED"
 				return r
 			}
+		}
+		if cached.ID != "" {
+			env = imageEnv(s, cached.ID)
 		}
 		args = append(args, "up", "-d", "--no-deps", "--pull", "never", s.ComposeService)
 	case "configure":
@@ -220,7 +223,10 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 					r.Code = "STOPPED"
 					return r
 				}
-			} else if c.Action == "health" || (o.Healthy && ((c.Action != "deploy" && c.Action != "rollback") || o.Image == c.Image) && (c.Action != "configure" || o.ConfigHash == c.ConfigHash)) {
+			} else if c.Action == "health" || (o.Healthy && ((c.Action != "deploy" && c.Action != "rollback") || (o.Image == c.Image || func() bool { image, err := preparedImage(ctx, s, c.Image); return err == nil && image.ID == o.ImageID }())) && (c.Action != "configure" || o.ConfigHash == c.ConfigHash)) {
+				if c.Action == "deploy" || c.Action == "rollback" {
+					r.Image = c.Image
+				}
 				r.Status = "succeeded"
 				r.Code = "VERIFIED"
 				return r

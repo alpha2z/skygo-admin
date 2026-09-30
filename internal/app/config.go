@@ -10,6 +10,7 @@ import (
 )
 
 type Config struct {
+	DistributionConfig                                 string
 	ListenAddress, MySQLDSN, JWTSecret, BootstrapToken string
 	CookieSecure, TOTPEnabled, SkipEmailConfirmation   bool
 	TrustedProxyCIDRs                                  []string
@@ -77,6 +78,7 @@ func LoadConfig() (Config, error) {
 	if v := os.Getenv("ADMIN_TRUSTED_PROXY_CIDRS"); v != "" {
 		c.TrustedProxyCIDRs = strings.Split(v, ",")
 	}
+	c.DistributionConfig = os.Getenv("ADMIN_DISTRIBUTION_CONFIG")
 	c.GitHubConfig = os.Getenv("ADMIN_GITHUB_CONFIG")
 	return c, nil
 }

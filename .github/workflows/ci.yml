@@ -26,6 +26,7 @@ jobs:
           GOWORK: 'off'
       - run: make test
       - run: python3 scripts/integration.py
+      - run: python3 scripts/archive-smoke.py
       - run: python3 scripts/release.py
       - name: Build standalone images
         run: |

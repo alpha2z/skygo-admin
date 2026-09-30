@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/alpha2z/skygo-admin/internal/confirmation"
 	"github.com/alpha2z/skygo-admin/internal/githubbuild"
+	"github.com/alpha2z/skygo-admin/internal/registrycache"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/gin-gonic/gin"
@@ -29,6 +30,9 @@ type claims struct {
 	jwt.RegisteredClaims
 }
 type Server struct {
+	registryClient    *registrycache.Client
+	distribution      *distributionConfig
+	distributionDone  chan struct{}
 	maintenanceCancel context.CancelFunc
 	maintenanceDone   chan struct{}
 	autoDone          chan struct{}
@@ -58,7 +62,7 @@ func OpenDB(dsn string) (*gorm.DB, error) {
 }
 func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 	var version SchemaVersion
-	if db.First(&version, 1).Error != nil || version.Version != 3 {
+	if db.First(&version, 1).Error != nil || version.Version != 4 {
 		return nil, errors.New("run admin-api -migrate before starting")
 	}
 	m, err := model.NewModelFromString(casbinModel)
@@ -96,6 +100,9 @@ func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 			return nil, err
 		}
 	}
+	if err := s.loadDistribution(); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 func (s *Server) Start(context.Context) error {
@@ -109,6 +116,8 @@ func (s *Server) Start(context.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.maintenanceCancel = cancel
 	s.maintenanceDone = make(chan struct{})
+	s.distributionDone = make(chan struct{})
+	go func() { defer close(s.distributionDone); s.distributionLoop(ctx) }()
 	s.autoDone = make(chan struct{})
 	go func() { defer close(s.autoDone); s.autoRegisterLoop(ctx) }()
 	go func() {
@@ -140,6 +149,13 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.autoDone != nil {
 		select {
 		case <-s.autoDone:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if s.distributionDone != nil {
+		select {
+		case <-s.distributionDone:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -216,13 +232,26 @@ func (s *Server) Router() *gin.Engine {
 	a.POST("/publications", s.require("ops.write"), s.require("build.read"), s.createPublication)
 	a.POST("/publications/:id/approve", s.require("ops.approve"), s.approvePublication)
 	a.POST("/publications/:id/reject", s.require("ops.approve"), s.rejectPublication)
+	a.GET("/image-cleanup/resources", s.require("ops.read"), s.cleanupInventory)
+	a.GET("/image-cleanup", s.require("ops.read"), s.cleanupList)
+	a.POST("/image-cleanup", s.require("ops.write"), s.previewCleanup)
+	a.POST("/image-cleanup/:id/approve", s.require("ops.approve"), s.approveCleanup)
+	a.POST("/image-cleanup/:id/reject", s.require("ops.approve"), s.rejectCleanup)
+	a.GET("/image-deliveries", s.require("ops.read"), s.imageDeliveries)
+	a.GET("/image-deliveries/:id", s.require("ops.read"), s.imageDelivery)
+	a.GET("/image-deliveries/:id/attempts", s.require("ops.read"), s.imageAttempts)
+	a.POST("/image-deliveries/:id/retry", s.require("ops.write"), s.require("build.read"), s.retryDelivery)
 	a.GET("/builds", s.require("build.read"), s.builds)
 	a.POST("/builds", s.require("build.write"), s.dispatchBuild)
 	agents := r.Group("/agent/v1", s.agentAuth())
+	agents.GET("/image-deliveries/:id/archive", s.deliveryArchive)
+	agents.POST("/image-deliveries/:id/attempts", s.beginDeliveryAttempt)
+	agents.POST("/image-deliveries/:id/progress", s.deliveryProgress)
 	agents.POST("/heartbeat", s.heartbeat)
 	agents.GET("/commands", s.commands)
 	agents.POST("/results", s.result)
 	r.StaticFile("/", s.cfg.WebRoot+"/index.html")
+	r.StaticFile("/distribution.js", s.cfg.WebRoot+"/distribution.js")
 	r.StaticFile("/publications.js", s.cfg.WebRoot+"/publications.js")
 	r.StaticFile("/releases.js", s.cfg.WebRoot+"/releases.js")
 	r.StaticFile("/app.js", s.cfg.WebRoot+"/app.js")

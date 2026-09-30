@@ -51,7 +51,7 @@ func prepareImage(ctx context.Context, s LocalService, c control.Command) contro
 	if !allowed || !control.Image.MatchString(c.Image) || (c.Platform != "linux/amd64" && c.Platform != "linux/arm64") {
 		return r
 	}
-	image, err := inspectImage(ctx, c.Image)
+	image, err := preparedImage(ctx, s, c.Image)
 	if err != nil {
 		if _, err = run(ctx, os.Environ(), "pull", "--platform", c.Platform, c.Image); err != nil {
 			r.Code = "IMAGE_PULL_FAILED"
@@ -63,7 +63,7 @@ func prepareImage(ctx context.Context, s LocalService, c control.Command) contro
 		r.Code = "IMAGE_INSPECT_FAILED"
 		return r
 	}
-	if !image.matches(c.Image, c.Platform) {
+	if !image.matches(c.Image, c.Platform) && !preparedEvidence(s, c.Image, image.ID, c.Platform) {
 		r.Code = "IMAGE_IDENTITY_MISMATCH"
 		return r
 	}

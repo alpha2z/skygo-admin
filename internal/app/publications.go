@@ -125,6 +125,9 @@ func (s *Server) unitInventory(tx *gorm.DB, hostID, executionID string) (Host, [
 		if matches != 1 || !capable || o.ControlKind != kind || !control.Identifier.MatchString(o.UnitID) || len(o.InventoryRevision) != 64 || !control.ImageIdentity(o.ImageID) {
 			return fail("UNIT_CAPABILITY_MISSING", "Service "+def.ID+" requires an explicitly configured control.unit.v1 agent.")
 		}
+		if o.SyncImageEnv && !hasCapability(o, "image.env.v1") {
+			return fail("ENV_CAPABILITY_MISSING", "Upgrade the Agent before enabling environment persistence.")
+		}
 		if !o.Healthy {
 			return fail("SERVICE_UNHEALTHY", "Service "+def.ID+" is not healthy.")
 		}
@@ -197,7 +200,7 @@ func (s *Server) resolvePublication(tx *gorm.DB, req publicationRequest, executi
 	scope.ReleaseDigest = control.Digest(b)
 	scope.Unit = control.UnitPlan{ID: seen[0].UnitID, BootID: h.BootID}
 	for i, d := range defs {
-		t := control.UnitTarget{Service: d.ID, Kind: d.ControlKind, Platform: d.Platform, PreviousImageID: seen[i].ImageID, Image: seen[i].ImageID, ImageID: seen[i].ImageID, Revision: seen[i].InventoryRevision}
+		t := control.UnitTarget{SyncImageEnv: seen[i].SyncImageEnv, Service: d.ID, Kind: d.ControlKind, Platform: d.Platform, PreviousImageID: seen[i].ImageID, Image: seen[i].ImageID, ImageID: seen[i].ImageID, Revision: seen[i].InventoryRevision}
 		for _, prepared := range group.Targets {
 			if prepared.Service == d.ID {
 				t.Selected = true
@@ -253,7 +256,7 @@ func (s *Server) prepareSelection(c *gin.Context) {
 			}
 			raw, _ := json.Marshal(cmd)
 			row := Task{ID: id, HostID: h.ID, ServiceID: t.Service, Action: cmd.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: time.Now().UTC(), ExpiresAt: cmd.ExpiresAt}
-			if err := tx.Create(&row).Error; err != nil {
+			if err := s.queuePreparation(tx, &row, m.ID, h).Error; err != nil {
 				return nil, err
 			}
 			if err := tx.Save(&ImagePreparation{ID: preparationID(h.ID, t), TaskID: id, HostBootID: h.BootID}).Error; err != nil {
@@ -556,4 +559,13 @@ func (s *Server) imageProvenance(tx *gorm.DB, h Host, d control.Service, o contr
 		}
 	}
 	return gin.H{"status": "unmatched"}
+}
+
+func hasCapability(o control.Observation, name string) bool {
+	for _, c := range o.Capabilities {
+		if c == name {
+			return true
+		}
+	}
+	return false
 }
