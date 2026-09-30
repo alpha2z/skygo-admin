@@ -1,6 +1,7 @@
 .PHONY: test build release scan web-test
 export GOWORK=off
 test:
+	python3 -m unittest discover -s scripts -p 'test_*.py'
 	go test ./...
 	go test -race ./internal/...
 	$(MAKE) web-test

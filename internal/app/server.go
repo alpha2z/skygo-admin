@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/alpha2z/skygo-admin/internal/confirmation"
+	"github.com/alpha2z/skygo-admin/internal/control"
 	"github.com/alpha2z/skygo-admin/internal/githubbuild"
 	"github.com/alpha2z/skygo-admin/internal/registrycache"
 	"github.com/casbin/casbin/v2"
@@ -15,9 +16,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"io"
+	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -61,6 +65,14 @@ func OpenDB(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
+	if err := validateExtensions(cfg.Extensions); err != nil {
+		return nil, err
+	}
+	for name, x := range cfg.AgentActions {
+		if !control.Identifier.MatchString(name) || !permissionID.MatchString(x.Permission) || !permissionID.MatchString(x.ApprovalPermission) || x.Validate == nil {
+			return nil, errors.New("invalid agent action registration")
+		}
+	}
 	var version SchemaVersion
 	if db.First(&version, 1).Error != nil || version.Version != 4 {
 		return nil, errors.New("run admin-api -migrate before starting")
@@ -105,13 +117,37 @@ func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 	}
 	return s, nil
 }
-func (s *Server) Start(context.Context) error {
-	l, err := net.Listen("tcp", s.cfg.ListenAddress)
+func (s *Server) Start(parent context.Context) error {
+	started := []Extension{}
+	for _, x := range s.cfg.Extensions {
+		if x.Start != nil {
+			if err := x.Start(parent); err != nil {
+				for i := len(started) - 1; i >= 0; i-- {
+					if started[i].Stop != nil {
+						_ = started[i].Stop(context.Background())
+					}
+				}
+				return errors.New("extension start failed")
+			}
+		}
+		started = append(started, x)
+	}
+
+	l, err := s.listen()
 	if err != nil {
+		for i := len(started) - 1; i >= 0; i-- {
+			if started[i].Stop != nil {
+				_ = started[i].Stop(context.Background())
+			}
+		}
 		return errors.New("admin listener unavailable")
 	}
 	s.listener = l
-	s.httpServer = &http.Server{Handler: s.Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	requestTimeout := s.cfg.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = 30 * time.Second
+	}
+	s.httpServer = &http.Server{Handler: s.Router(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: requestTimeout, WriteTimeout: requestTimeout, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	go s.httpServer.Serve(l)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.maintenanceCancel = cancel
@@ -137,7 +173,17 @@ func (s *Server) Start(context.Context) error {
 	}()
 	return nil
 }
-func (s *Server) Stop(ctx context.Context) error {
+func (s *Server) Stop(ctx context.Context) (stopErr error) {
+	defer func() {
+		for i := len(s.cfg.Extensions) - 1; i >= 0; i-- {
+			if stop := s.cfg.Extensions[i].Stop; stop != nil {
+				if err := stop(ctx); err != nil {
+					stopErr = errors.Join(stopErr, errors.New("extension stop failed"))
+				}
+			}
+		}
+	}()
+
 	if s.maintenanceCancel != nil {
 		s.maintenanceCancel()
 		select {
@@ -173,7 +219,7 @@ func (s *Server) Router() *gin.Engine {
 	}
 	r.Use(gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) { c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) }), securityHeaders(), func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store")
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 512<<10)
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, s.requestBodyLimit(c))
 		c.Next()
 	})
 	r.GET("/healthz", func(c *gin.Context) {
@@ -250,11 +296,30 @@ func (s *Server) Router() *gin.Engine {
 	agents.POST("/heartbeat", s.heartbeat)
 	agents.GET("/commands", s.commands)
 	agents.POST("/results", s.result)
-	r.StaticFile("/", s.cfg.WebRoot+"/index.html")
-	r.StaticFile("/distribution.js", s.cfg.WebRoot+"/distribution.js")
-	r.StaticFile("/publications.js", s.cfg.WebRoot+"/publications.js")
-	r.StaticFile("/releases.js", s.cfg.WebRoot+"/releases.js")
-	r.StaticFile("/app.js", s.cfg.WebRoot+"/app.js")
-	r.StaticFile("/styles.css", s.cfg.WebRoot+"/styles.css")
+	s.mountExtensions(r, a)
+	if s.cfg.WebFS != nil {
+		for _, file := range []string{"index.html", "distribution.js", "publications.js", "releases.js", "app.js", "styles.css"} {
+			name := file
+			url := "/" + file
+			if file == "index.html" {
+				url = "/"
+			}
+			r.GET(url, func(c *gin.Context) {
+				body, err := fs.ReadFile(s.cfg.WebFS, name)
+				if err != nil {
+					c.Status(404)
+					return
+				}
+				c.Data(200, mime.TypeByExtension(filepath.Ext(name)), body)
+			})
+		}
+	} else {
+		r.StaticFile("/", s.cfg.WebRoot+"/index.html")
+		r.StaticFile("/distribution.js", s.cfg.WebRoot+"/distribution.js")
+		r.StaticFile("/publications.js", s.cfg.WebRoot+"/publications.js")
+		r.StaticFile("/releases.js", s.cfg.WebRoot+"/releases.js")
+		r.StaticFile("/app.js", s.cfg.WebRoot+"/app.js")
+		r.StaticFile("/styles.css", s.cfg.WebRoot+"/styles.css")
+	}
 	return r
 }

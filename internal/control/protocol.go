@@ -29,6 +29,8 @@ type Service struct {
 	ControlPlane bool     `json:"control_plane"`
 }
 type Command struct {
+	Extension         string          `json:"extension,omitempty"`
+	Payload           json.RawMessage `json:"payload,omitempty"`
 	SyncImageEnv      bool            `json:"sync_image_env,omitempty"`
 	InventoryRevision string          `json:"inventory_revision,omitempty"`
 	PreviousImageID   string          `json:"previous_image_id,omitempty"`
@@ -52,30 +54,32 @@ type Envelope struct {
 	Signature []byte          `json:"signature"`
 }
 type Result struct {
-	Unit       []UnitProof `json:"unit,omitempty"`
-	ImageID    string      `json:"image_id,omitempty"`
-	Platform   string      `json:"platform,omitempty"`
-	Logs       string      `json:"logs,omitempty"`
-	ID         string      `json:"id"`
-	Status     string      `json:"status"`
-	Code       string      `json:"code"`
-	Image      string      `json:"image,omitempty"`
-	Healthy    bool        `json:"healthy"`
-	ConfigHash string      `json:"config_hash,omitempty"`
+	Data       json.RawMessage `json:"data,omitempty"`
+	Unit       []UnitProof     `json:"unit,omitempty"`
+	ImageID    string          `json:"image_id,omitempty"`
+	Platform   string          `json:"platform,omitempty"`
+	Logs       string          `json:"logs,omitempty"`
+	ID         string          `json:"id"`
+	Status     string          `json:"status"`
+	Code       string          `json:"code"`
+	Image      string          `json:"image,omitempty"`
+	Healthy    bool            `json:"healthy"`
+	ConfigHash string          `json:"config_hash,omitempty"`
 }
 type Observation struct {
-	SyncImageEnv      bool     `json:"sync_image_env,omitempty"`
-	Running           bool     `json:"running"`
-	UnitID            string   `json:"unit_id,omitempty"`
-	ControlKind       string   `json:"control_kind,omitempty"`
-	InventoryRevision string   `json:"inventory_revision,omitempty"`
-	ImageID           string   `json:"image_id,omitempty"`
-	Platform          string   `json:"platform,omitempty"`
-	Capabilities      []string `json:"capabilities,omitempty"`
-	Service           string   `json:"service"`
-	Image             string   `json:"image"`
-	Healthy           bool     `json:"healthy"`
-	ConfigHash        string   `json:"config_hash,omitempty"`
+	Extensions        map[string]json.RawMessage `json:"extensions,omitempty"`
+	SyncImageEnv      bool                       `json:"sync_image_env,omitempty"`
+	Running           bool                       `json:"running"`
+	UnitID            string                     `json:"unit_id,omitempty"`
+	ControlKind       string                     `json:"control_kind,omitempty"`
+	InventoryRevision string                     `json:"inventory_revision,omitempty"`
+	ImageID           string                     `json:"image_id,omitempty"`
+	Platform          string                     `json:"platform,omitempty"`
+	Capabilities      []string                   `json:"capabilities,omitempty"`
+	Service           string                     `json:"service"`
+	Image             string                     `json:"image"`
+	Healthy           bool                       `json:"healthy"`
+	ConfigHash        string                     `json:"config_hash,omitempty"`
 }
 type Heartbeat struct {
 	Version      int           `json:"version"`
@@ -106,7 +110,14 @@ func (c Command) Validate() error {
 	if c.Action != "control-unit" && c.Unit != nil {
 		return errors.New("unexpected unit")
 	}
+	if c.Action != "extension" && (c.Extension != "" || len(c.Payload) > 0) {
+		return errors.New("unexpected extension payload")
+	}
 	switch c.Action {
+	case "extension":
+		if !Identifier.MatchString(c.Extension) || len(c.Payload) == 0 || len(c.Payload) > 256<<10 || !json.Valid(c.Payload) || c.Image != "" || len(c.Config) > 0 || c.ConfigHash != "" {
+			return errors.New("invalid extension command")
+		}
 	case "image-cleanup":
 		if c.Cleanup == nil || !Image.MatchString(c.Image) || len(c.Config) > 0 || !ImageIdentity(c.Cleanup.ImageID) || (c.Cleanup.Platform != "linux/amd64" && c.Cleanup.Platform != "linux/arm64") || (c.Cleanup.Kind != "image" && c.Cleanup.Kind != "archive") || (c.Cleanup.Kind == "archive" && !ImageIdentity("sha256:"+c.Cleanup.SHA256)) {
 			return errors.New("invalid cleanup scope")

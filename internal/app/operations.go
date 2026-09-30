@@ -217,10 +217,13 @@ func (s *Server) tasks(c *gin.Context) {
 }
 func (s *Server) createTask(c *gin.Context) {
 	var req struct {
-		Service       string `json:"service"`
-		Action        string `json:"action"`
-		Image         string `json:"image"`
-		ConfigVersion string `json:"config_version"`
+		RequestID     string          `json:"request_id"`
+		Extension     string          `json:"extension"`
+		Payload       json.RawMessage `json:"payload"`
+		Service       string          `json:"service"`
+		Action        string          `json:"action"`
+		Image         string          `json:"image"`
+		ConfigVersion string          `json:"config_version"`
 	}
 	body, ok := read(c, &req)
 	if !ok {
@@ -244,6 +247,24 @@ func (s *Server) createTask(c *gin.Context) {
 			return
 		}
 	}
+	if req.Action == "extension" {
+		if req.Image != "" || req.ConfigVersion != "" {
+			c.Status(400)
+			return
+		}
+		x, exists := s.cfg.AgentActions[req.Extension]
+		allowed := false
+		if exists {
+			allowed, _ = s.auth.Enforce(c.GetString("admin_role"), x.Permission)
+		}
+		if !exists || !allowed || !control.Identifier.MatchString(req.RequestID) || x.Validate(req.Payload) != nil {
+			c.Status(403)
+			return
+		}
+	} else if req.Extension != "" || len(req.Payload) > 0 || req.RequestID != "" {
+		c.Status(400)
+		return
+	}
 	s.change(c, body, "task.create", req.Service, func(tx *gorm.DB) (any, error) {
 		var record ServiceRecord
 		if tx.First(&record, "id = ?", req.Service).Error != nil {
@@ -257,7 +278,30 @@ func (s *Server) createTask(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
+		if req.Action == "extension" {
+			id = req.RequestID
+		}
 		cmd := control.Command{Version: 1, ID: id, HostID: def.HostID, Service: def.ID, Action: req.Action, Image: req.Image, ExpiresAt: time.Now().UTC().Add(time.Hour)}
+		if req.Action == "extension" {
+			cmd.Extension = req.Extension
+			cmd.Payload = req.Payload
+			if err := s.checkExtensionTask(tx, cmd, uint32(c.GetUint("admin_id")), 0); err != nil {
+				return nil, err
+			}
+			var old Task
+			err := tx.First(&old, "id = ?", id).Error
+			if err == nil {
+				var previous control.Command
+				if json.Unmarshal([]byte(old.Payload), &previous) != nil || old.RequestedBy != uint32(c.GetUint("admin_id")) || previous.Service != cmd.Service || previous.Extension != cmd.Extension || !bytes.Equal(previous.Payload, cmd.Payload) {
+					return nil, errConflict
+				}
+				return unchangedMutation{old}, nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+		}
+
 		if req.Action == "configure" {
 			var config ConfigRelease
 			if tx.First(&config, "id = ? AND service_id = ?", req.ConfigVersion, req.Service).Error != nil {
@@ -283,6 +327,11 @@ func (s *Server) createTask(c *gin.Context) {
 					cmd.InventoryRevision = o.InventoryRevision
 					cmd.PreviousImageID = o.ImageID
 				}
+			}
+		}
+		if s.cfg.TaskPolicy != nil {
+			if err := s.cfg.TaskPolicy(c.Request.Context(), tx, cmd); err != nil {
+				return nil, err
 			}
 		}
 		if cmd.Validate() != nil {
@@ -326,6 +375,14 @@ func (s *Server) approveTask(c *gin.Context) {
 		var payload control.Command
 		if json.Unmarshal([]byte(task.Payload), &payload) != nil {
 			return nil, errConflict
+		}
+		if s.cfg.TaskPolicy != nil {
+			if err := s.cfg.TaskPolicy(c.Request.Context(), tx, payload); err != nil {
+				return nil, err
+			}
+		}
+		if err := s.checkExtensionTask(tx, payload, task.RequestedBy, uint32(c.GetUint("admin_id"))); err != nil {
+			return nil, err
 		}
 		if payload.SyncImageEnv {
 			var observations []control.Observation
@@ -644,6 +701,28 @@ func (s *Server) commands(c *gin.Context) {
 				}
 				continue
 			}
+			if t.Status == "queued" {
+				policyErr := s.checkExtensionTask(tx, command, t.RequestedBy, t.ApprovedBy)
+				code := "EXTENSION_AUTHORIZATION_CHANGED"
+				if policyErr == nil && s.cfg.TaskPolicy != nil {
+					policyErr = s.cfg.TaskPolicy(c.Request.Context(), tx, command)
+					code = "COMPOSITION_POLICY_REJECTED"
+				}
+				if policyErr != nil {
+					t.Status = "failed"
+					now := time.Now().UTC()
+					t.FinishedAt = &now
+					result, _ := json.Marshal(control.Result{ID: t.ID, Status: "failed", Code: code})
+					t.Result = string(result)
+					if tx.Save(&t).Error != nil || tx.Model(&ServiceRecord{}).Where("busy_task = ?", t.ID).Update("busy_task", "").Error != nil {
+						return errConflict
+					}
+					if s.appendAudit(tx, 0, "task.policy.rejected", t.ID, nil) != nil {
+						return errConflict
+					}
+					continue
+				}
+			}
 			envelope, err := control.Sign(command, s.cfg.SigningKey)
 			if err != nil {
 				return err
@@ -672,7 +751,7 @@ func (s *Server) result(c *gin.Context) {
 	if _, ok := read(c, &req); !ok {
 		return
 	}
-	if !control.Identifier.MatchString(req.ID) || (req.Status != "succeeded" && req.Status != "failed" && req.Status != "uncertain" && req.Status != "rolled_back") || len(req.Code) > 160 || len(req.Logs) > 16384 {
+	if len(req.Data) > 64<<10 || (len(req.Data) > 0 && !json.Valid(req.Data)) || !control.Identifier.MatchString(req.ID) || (req.Status != "succeeded" && req.Status != "failed" && req.Status != "uncertain" && req.Status != "rolled_back") || len(req.Code) > 160 || len(req.Logs) > 16384 {
 		c.Status(400)
 		return
 	}

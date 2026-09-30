@@ -55,6 +55,13 @@ func preparedImage(ctx context.Context, s LocalService, ref string) (imageDetail
 	return image, nil
 }
 func (a *Agent) execute(ctx context.Context, s LocalService, c control.Command) control.Result {
+	if c.Action == "extension" {
+		if x, ok := a.extension(s, c.Extension); ok {
+			return x.Execute(ctx, s, c)
+		}
+		return control.Result{ID: c.ID, Status: "failed", Code: "EXTENSION_UNAVAILABLE"}
+	}
+
 	if c.Action == "image-cleanup" {
 		return a.executeCleanup(ctx, s, c)
 	}

@@ -78,8 +78,13 @@ func (a *Agent) handleEnvDeployment(ctx context.Context, e control.Envelope, c c
 		}
 	}
 	if !recovering {
+		if a.cfg.Guard != nil {
+			if err := a.cfg.Guard(work, s, c); err != nil {
+				return finish(control.Result{ID: c.ID, Status: "failed", Code: "LOCAL_POLICY_REJECTED"})
+			}
+		}
 		o, err := a.driver.Observe(work, s)
-		if err != nil || !o.Healthy || o.ImageID != c.PreviousImageID || time.Now().After(c.ExpiresAt) {
+		if err != nil || (o.Running && !o.Healthy) || o.ImageID != c.PreviousImageID || time.Now().After(c.ExpiresAt) {
 			return finish(control.Result{ID: c.ID, Status: "failed", Code: "ENV_SCOPE_CHANGED"})
 		}
 		// Cache-only preparation precedes the journaled service mutation.
@@ -93,6 +98,11 @@ func (a *Agent) handleEnvDeployment(ctx context.Context, e control.Envelope, c c
 		}
 		if revision, err := a.revisionForTask(s, c.ID); err != nil || revision != c.InventoryRevision {
 			return finish(control.Result{ID: c.ID, Status: "failed", Code: "ENV_SCOPE_CHANGED"})
+		}
+		if a.cfg.Guard != nil {
+			if err := a.cfg.Guard(work, s, c); err != nil {
+				return finish(control.Result{ID: c.ID, Status: "failed", Code: "LOCAL_POLICY_REJECTED"})
+			}
 		}
 		j.Phase = "writing"
 		if save() != nil {

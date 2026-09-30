@@ -23,6 +23,7 @@ import (
 )
 
 type LocalService struct {
+	Extensions     []string `json:"extensions,omitempty"`
 	SyncImageEnv   bool     `json:"sync_image_env,omitempty"`
 	CacheDir       string   `json:"-"`
 	ID             string   `json:"id"`
@@ -38,14 +39,16 @@ type LocalService struct {
 	AllowLogs      bool     `json:"allow_logs"`
 }
 type Config struct {
-	ControlUnit       *LocalUnit     `json:"control_unit,omitempty"`
-	HostID            string         `json:"host_id"`
-	APIURL            string         `json:"api_url"`
-	TokenFile         string         `json:"token_file"`
-	PublicKeyFile     string         `json:"public_key_file"`
-	StateDir          string         `json:"state_dir"`
-	AllowLoopbackHTTP bool           `json:"allow_loopback_http"`
-	Services          []LocalService `json:"services"`
+	Guard             func(context.Context, LocalService, control.Command) error `json:"-"`
+	Extensions        map[string]ExtensionAction                                 `json:"-"`
+	ControlUnit       *LocalUnit                                                 `json:"control_unit,omitempty"`
+	HostID            string                                                     `json:"host_id"`
+	APIURL            string                                                     `json:"api_url"`
+	TokenFile         string                                                     `json:"token_file"`
+	PublicKeyFile     string                                                     `json:"public_key_file"`
+	StateDir          string                                                     `json:"state_dir"`
+	AllowLoopbackHTTP bool                                                       `json:"allow_loopback_http"`
+	Services          []LocalService                                             `json:"services"`
 }
 type Driver interface {
 	Observe(context.Context, LocalService) (control.Observation, error)
@@ -98,6 +101,11 @@ func New(c Config, d Driver) (*Agent, error) {
 	for i := range c.Services {
 		c.Services[i].CacheDir = filepath.Join(c.StateDir, "images")
 	}
+	for name, x := range c.Extensions {
+		if !control.Identifier.MatchString(name) || x.Execute == nil || x.Reconcile == nil || x.Validate == nil {
+			return nil, errors.New("invalid extension registration")
+		}
+	}
 	seen := map[string]bool{}
 	for _, s := range c.Services {
 		if !control.Identifier.MatchString(s.ID) || seen[s.ID] || !filepath.IsAbs(s.ComposeFile) || !control.Identifier.MatchString(s.Project) || !control.Identifier.MatchString(s.ComposeService) || !envName(s.ImageVariable) {
@@ -112,6 +120,11 @@ func New(c Config, d Driver) (*Agent, error) {
 		for _, prefix := range s.AllowedImages {
 			if prefix == "" || strings.ContainsAny(prefix, " \t\r\n@") {
 				return nil, errors.New("invalid image allowlist")
+			}
+		}
+		for _, name := range s.Extensions {
+			if _, ok := c.Extensions[name]; !ok {
+				return nil, errors.New("unregistered local extension")
 			}
 		}
 		seen[s.ID] = true
@@ -202,6 +215,20 @@ func (a *Agent) run(ctx context.Context) {
 						o.Capabilities = append(o.Capabilities, "image.env.v1")
 						o.InventoryRevision, _ = a.unitRevision(s)
 					}
+					for _, name := range s.Extensions {
+						o.Capabilities = append(o.Capabilities, "extension."+name+".v1")
+						if x, ok := a.cfg.Extensions[name]; ok && x.Observe != nil {
+							work, done := context.WithTimeout(ctx, 5*time.Second)
+							data, err := x.Observe(work, s)
+							done()
+							if err == nil && len(data) <= 16<<10 && json.Valid(data) {
+								if o.Extensions == nil {
+									o.Extensions = map[string]json.RawMessage{}
+								}
+								o.Extensions[name] = data
+							}
+						}
+					}
 					a.decorateUnit(s, &o)
 					observations = append(observations, o)
 				}
@@ -263,6 +290,7 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 	if !found {
 		return result
 	}
+
 	if (cmd.Action == "deploy" || cmd.Action == "rollback") && (service.SyncImageEnv || cmd.SyncImageEnv) {
 		return a.handleEnvDeployment(ctx, e, cmd, service)
 	}
@@ -306,6 +334,21 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 		result.Code = "COMMAND_EXPIRED"
 		return result
 	}
+	if cmd.Action == "extension" {
+		x, ok := a.extension(service, cmd.Extension)
+		if !ok || x.Validate(cmd.Payload) != nil {
+			return result
+		}
+	}
+	if a.cfg.Guard != nil {
+		if err := a.cfg.Guard(ctx, service, cmd); err != nil {
+			result.Code = "LOCAL_POLICY_REJECTED"
+			if a.save(path, receipt{Digest: hash, Command: cmd, Result: result}) != nil {
+				return control.Result{ID: cmd.ID, Status: "uncertain", Code: "JOURNAL_UNAVAILABLE"}
+			}
+			return result
+		}
+	}
 	rec := receipt{Digest: hash, Command: cmd, Result: control.Result{ID: cmd.ID, Status: "uncertain", Code: "EXECUTION_INTERRUPTED"}}
 	if a.save(path, rec) != nil {
 		result.Code = "JOURNAL_UNAVAILABLE"
@@ -333,6 +376,12 @@ func (a *Agent) save(path string, r receipt) error {
 	return settings.Atomic(path, b)
 }
 func (a *Agent) reconcile(ctx context.Context, s LocalService, c control.Command) control.Result {
+	if c.Action == "extension" {
+		if x, ok := a.extension(s, c.Extension); ok {
+			return x.Reconcile(ctx, s, c)
+		}
+		return control.Result{ID: c.ID, Status: "uncertain", Code: "EXTENSION_UNAVAILABLE"}
+	}
 	r := control.Result{ID: c.ID, Status: "uncertain", Code: "MANUAL_RECONCILIATION_REQUIRED"}
 	o, err := a.driver.Observe(ctx, s)
 	if err != nil {

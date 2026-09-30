@@ -61,6 +61,12 @@ func (s *Server) trustedRelease(tx *gorm.DB, id string) (release.Manifest, error
 	if err != nil || manifest.ID != id {
 		return release.Manifest{}, releaseFailure("BUILD_SIGNATURE_UNTRUSTED")
 	}
+	if len(s.cfg.Extensions) > 0 && (s.cfg.ReleaseRepository == "" || s.cfg.ReleaseWorkflow == "") {
+		return release.Manifest{}, publicationError("EXTENSION_RELEASE_POLICY_REQUIRED", "This composition must configure its own release source before updating.")
+	}
+	if (s.cfg.ReleaseRepository != "" && manifest.Build.Repository != s.cfg.ReleaseRepository) || (s.cfg.ReleaseWorkflow != "" && manifest.Build.Workflow != s.cfg.ReleaseWorkflow) {
+		return release.Manifest{}, publicationError("EXTENSION_RELEASE_SOURCE_MISMATCH", "The trusted build does not belong to this composition.")
+	}
 	return manifest, nil
 }
 func (s *Server) prepareGroup(tx *gorm.DB, m release.Manifest, h Host, now time.Time, selected ...string) (prepareGroup, error) {

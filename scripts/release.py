@@ -6,7 +6,7 @@ subprocess.run(['python3','scripts/scan.py'],cwd=root,check=True)
 for arch in ('amd64','arm64'):
  for name in ('admin-api','ops-agent'):
   subprocess.run(['go','build','-trimpath','-buildvcs=false','-ldflags=-s -w','-o',str(out/f'{name}-linux-{arch}'),f'./cmd/{name}'],cwd=root,env=dict(os.environ,GOWORK='off',CGO_ENABLED='0',GOOS='linux',GOARCH=arch),check=True)
-allow=['cmd','internal','admin-web','deploy','docs','examples','scripts','.github','go.mod','go.sum','LICENSE','LICENSE.go-admin','NOTICE','README.md','README.zh-CN.md','CONTRIBUTING.md','SECURITY.md','AGENTS.md','Makefile','.gitignore','.dockerignore']
+allow=['web','admin','agent','control','cmd','internal','admin-web','deploy','docs','examples','scripts','.github','go.mod','go.sum','LICENSE','LICENSE.go-admin','NOTICE','README.md','README.zh-CN.md','CONTRIBUTING.md','SECURITY.md','AGENTS.md','Makefile','.gitignore','.dockerignore']
 paths=[]
 for name in allow:
  p=root/name

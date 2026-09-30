@@ -1,15 +1,28 @@
 package app
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"github.com/alpha2z/skygo-admin/internal/control"
 	"github.com/alpha2z/skygo-admin/internal/settings"
+	"gorm.io/gorm"
+	"io/fs"
 	"os"
 	"strings"
+	"time"
 )
 
 type Config struct {
+	TaskPolicy                                         func(context.Context, *gorm.DB, control.Command) error
+	RequestTimeout                                     time.Duration
+	UnixSocket                                         string
+	ReleaseRepository                                  string
+	ReleaseWorkflow                                    string
+	WebFS                                              fs.FS
+	AgentActions                                       map[string]AgentAction
+	Extensions                                         []Extension
 	DistributionConfig                                 string
 	ListenAddress, MySQLDSN, JWTSecret, BootstrapToken string
 	CookieSecure, TOTPEnabled, SkipEmailConfirmation   bool
@@ -21,7 +34,7 @@ type Config struct {
 }
 
 func LoadConfig() (Config, error) {
-	c := Config{ListenAddress: "127.0.0.1:18391", CookieSecure: true, TOTPEnabled: true, WebRoot: "admin-web"}
+	c := Config{UnixSocket: os.Getenv("ADMIN_UNIX_SOCKET"), ListenAddress: "127.0.0.1:18391", CookieSecure: true, TOTPEnabled: true, WebRoot: "admin-web"}
 	if v := os.Getenv("ADMIN_LISTEN_ADDRESS"); v != "" {
 		c.ListenAddress = v
 	}
