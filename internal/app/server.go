@@ -214,6 +214,13 @@ func (s *Server) Stop(ctx context.Context) (stopErr error) {
 func (s *Server) Router() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		switch c.Request.URL.Path {
+		case "/", "/index.html", "/distribution.js", "/publications.js", "/releases.js", "/app.js", "/styles.css":
+			c.Header("Cache-Control", "no-store")
+		}
+		c.Next()
+	})
 	if err := r.SetTrustedProxies(s.cfg.TrustedProxyCIDRs); err != nil {
 		panic("invalid trusted proxy configuration")
 	}

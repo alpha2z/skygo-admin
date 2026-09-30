@@ -49,11 +49,18 @@ func TestExtensionRoutesAndAssetsMySQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := s.Router()
+	if w := call(r, nil, "GET", "/app.js", nil, nil); w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("UI script can be cached across rollback")
+	}
 	check(t, call(r, nil, "GET", "/api/v1/extensions/sample/items", nil, nil), 401)
 	check(t, call(r, nil, "GET", "/extensions/sample/assets/missing.js", nil, nil), 401)
 	password := "synthetic-extension-password"
 	check(t, call(r, nil, "POST", "/api/v1/bootstrap", map[string]string{"username": "owner", "email": "owner@example.com", "password": password}, map[string]string{"X-Bootstrap-Token": cfg.BootstrapToken}), 201)
 	owner := signIn(t, s, r, "owner", password)
+	if w := call(r, owner, "GET", "/extensions/sample/assets/sample.js", nil, nil); w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("extension asset can be cached across rollback")
+	}
+
 	check(t, call(r, owner, "GET", "/extensions/sample/assets/missing.js", nil, nil), 404)
 	check(t, call(r, owner, "GET", "/api/v1/extensions", nil, nil), 200)
 	check(t, call(r, owner, "POST", "/api/v1/extensions/sample/items", map[string]string{"actor": "forged"}, nil), 201)

@@ -256,7 +256,7 @@ func (s *Server) mountExtensions(r *gin.Engine, a *gin.RouterGroup) {
 			group.Handle(route.Method, route.Path, s.require(route.Permission), h)
 		}
 		if x.Assets != nil {
-			r.Group("/extensions/"+x.ID, s.authenticate()).StaticFS("/assets", http.FS(x.Assets))
+			r.Group("/extensions/"+x.ID, func(c *gin.Context) { c.Header("Cache-Control", "no-store"); c.Next() }, s.authenticate()).StaticFS("/assets", http.FS(x.Assets))
 		}
 	}
 }
