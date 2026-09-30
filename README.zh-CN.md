@@ -88,3 +88,5 @@ make release
 API/Web 自升级使用[选择式发布与 schema v3](docs/publications.md)，先显式准备镜像，再独立审批；首次 schema 升级使用手动维护流程。
 
 镜像分发、续传历史、安全清理和发布配置回写见 [schema v4 说明](docs/distribution.md)。本地构建的默认直拉模式保持可用，新能力须显式配置。
+
+Management self-update / 管理端自更新：[System update](docs/system-update.md).

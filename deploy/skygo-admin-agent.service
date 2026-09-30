@@ -1,0 +1,16 @@
+[Unit]
+Description=Skygo Admin host operations agent
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ops-agent -config /etc/skygo-admin/agent.json
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=180
+UMask=0077
+StateDirectory=skygo-admin/agent
+
+[Install]
+WantedBy=multi-user.target

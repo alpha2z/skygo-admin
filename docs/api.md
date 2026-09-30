@@ -58,3 +58,10 @@ The signed release and image-preparation endpoints are documented in
 service upgrade.
 
 See [schema v4 distribution](distribution.md) for delivery attempts, cleanup and optional Agent capabilities.
+
+For the System update view, GET `/publication-candidates` without `release_id`
+returns current control-unit inventory and provenance without preparing images.
+`available` is false until a trusted version is selected. The usual `ops.read`
+and `build.read` permissions still apply. Invalid explicit release IDs are rejected.
+Matched provenance includes nullable `build_started_at`; clients must display an
+unknown build time when absent. Publication writes and signed commands are unchanged.

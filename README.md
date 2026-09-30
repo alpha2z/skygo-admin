@@ -96,3 +96,5 @@ See [API](docs/api.md), [architecture](docs/architecture.md),
 Licensed under Apache-2.0 with retained third-party notices.
 
 镜像分发、续传历史、安全清理和发布配置回写见 [schema v4 说明](docs/distribution.md)。本地构建的默认直拉模式保持可用，新能力须显式配置。
+
+Management self-update / 管理端自更新：[System update](docs/system-update.md).

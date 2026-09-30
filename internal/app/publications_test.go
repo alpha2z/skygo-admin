@@ -69,6 +69,27 @@ func TestPublicationMigrationApprovalRecoveryMySQL(t *testing.T) {
 		check(t, call(r, nil, "POST", "/agent/v1/heartbeat", control.Heartbeat{Version: 1, BootID: "boot", Observations: observations}, headers), 200)
 	}
 	heartbeat()
+	// Inventory can be inspected before selecting a version, without preparing anything.
+	check(t, call(r, nil, "GET", "/api/v1/publication-candidates", nil, nil), 401)
+	inventory := call(r, owner, "GET", "/api/v1/publication-candidates", nil, nil)
+	check(t, inventory, 200)
+	var view struct {
+		Hosts []struct {
+			Targets []struct {
+				CurrentImageID string `json:"current_image_id"`
+				Available      bool   `json:"available"`
+			} `json:"targets"`
+		} `json:"hosts"`
+	}
+	if json.Unmarshal(inventory.Body.Bytes(), &view) != nil || len(view.Hosts) != 1 || len(view.Hosts[0].Targets) != 2 {
+		t.Fatal("inventory without release missing")
+	}
+	for _, target := range view.Hosts[0].Targets {
+		if target.CurrentImageID != oldID || target.Available {
+			t.Fatal("inventory offered an untrusted target")
+		}
+	}
+	check(t, call(r, owner, "GET", "/api/v1/publication-candidates?release_id=missing", nil, nil), 409)
 	req := publicationRequest{ID: "publish-a", HostID: "host", ReleaseID: m.ID, Selected: []string{"api"}}
 	check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 409)
 	check(t, call(r, owner, "POST", "/api/v1/publication-preparation", req, nil), 200)

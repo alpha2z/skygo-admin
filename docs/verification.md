@@ -149,3 +149,39 @@ to public image contracts. Tests use synthetic components and credentials genera
 at runtime. Source history and private deployment files were not copied. Custom
 policy scans, redacted secret scans and owned-image-file inspection accompany the
 source archive, four Linux binaries, three local review images and their manifests.
+
+## 2026-09-30 management self-update entry
+
+Passed in this implementation:
+
+- `make test`: all Go packages, internal race suite, and frontend tests; the initial
+  sandboxed race run could not read a Go build-cache file and was rerun successfully
+  with normal cache access. The final frontend suite has 17 passing tests.
+- `python3 scripts/integration.py`: isolated MySQL with race detection, including
+  inventory without a selected release, unauthenticated rejection, invalid release
+  rejection, existing migration, scope/receipt checks and independent approval.
+- `go vet ./...` with `GOWORK=off`; frontend syntax checks; `git diff --check`.
+- `python3 scripts/docker-smoke.py`: disposable database/API and synthetic nodes,
+  direct preparation, selected/paired publication, environment persistence,
+  health-failure rollback and interrupted Agent recovery without duplicate execution.
+  Also run using the locally built API/Web images to check packaged assets and 404s.
+- `python3 scripts/archive-smoke.py`: real Docker archive preparation and replay.
+- Three local `self-update-review` images built using the repository Dockerfiles;
+  `scripts/inspect-images.py` checked metadata and owned runtime files. No image
+  was pushed. Go module resolution used the pinned public dependency.
+- `make scan` and `make release`: policy scan, source archive, four Linux binaries
+  (API/Agent, amd64/arm64), manifest and checksums. No matching private markers or
+  credential patterns were reported. This is not proof that every possible secret
+  format can be detected.
+- The control Compose template parsed with synthetic settings. This is a template
+  check, not deployment validation of a user's external database or SMTP service.
+
+Not verified: desktop/mobile browser appearance or interactive re-login. The
+browser tool could not connect because its existing browser profile was already
+in use; no unrelated browser was stopped. DOM-based tests cover inventory rendering,
+read-only update checks, request bookmarks, bounded polling, disconnection and
+session-expiry behavior. Real registry/SMTP credentials and production deployment
+were not exercised. The Linux systemd example was not started on this macOS host.
+Signed release manifests do not declare schema compatibility; operator review of
+migration notes is still required, and API startup continues to reject an
+incompatible database. Existing rollback tests do not imply database rollback.

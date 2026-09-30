@@ -475,11 +475,16 @@ func validUnitResult(c control.Command, r control.Result) bool {
 }
 
 func (s *Server) publicationCandidates(c *gin.Context) {
-	m, err := s.trustedRelease(s.db, c.Query("release_id"))
-	if err != nil {
-		e := err.(*releaseError)
-		c.JSON(409, gin.H{"error": e.Message, "error_code": e.Code})
-		return
+	// An inventory-only read remains available before a trusted release is selected.
+	var m release.Manifest
+	if id := c.Query("release_id"); id != "" {
+		var err error
+		m, err = s.trustedRelease(s.db, id)
+		if err != nil {
+			e := err.(*releaseError)
+			c.JSON(409, gin.H{"error": e.Message, "error_code": e.Code})
+			return
+		}
 	}
 	hosts := []Host{}
 	if s.db.Order("id").Find(&hosts).Error != nil {
@@ -554,7 +559,7 @@ func (s *Server) imageProvenance(tx *gorm.DB, h Host, d control.Service, o contr
 		}
 		for _, image := range m.Images {
 			if image.Service == d.ControlKind && image.Platform == o.Platform && refs[image.Reference] {
-				return gin.H{"status": "matched", "release_id": row.ID, "ref": m.Build.Ref, "commit": m.Build.SourceCommit, "registered_at": row.CreatedAt}
+				return gin.H{"status": "matched", "release_id": row.ID, "ref": m.Build.Ref, "commit": m.Build.SourceCommit, "registered_at": row.CreatedAt, "build_started_at": row.BuildStartedAt}
 			}
 		}
 	}
