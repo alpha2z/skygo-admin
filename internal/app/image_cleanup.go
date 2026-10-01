@@ -146,6 +146,9 @@ func (s *Server) cleanupResources(tx *gorm.DB) ([]CleanupResource, error) {
 		for _, step := range append(p.Steps, p.Rollback...) {
 			protect(step.Command.Image, "Workflow execution scope")
 			protect(step.ImageID, "Workflow execution scope")
+			for _, id := range step.ImageIDAlternatives {
+				protect(id, "Workflow execution scope")
+			}
 		}
 	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].CreatedAt.After(tasks[j].CreatedAt) })

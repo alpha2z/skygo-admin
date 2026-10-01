@@ -150,3 +150,44 @@ func TestWorkflowSignedTargetMustMatchReviewedHost(t *testing.T) {
 		t.Fatal("unreviewed host accepted")
 	}
 }
+
+func TestPreparedIdentityOnlyAcceptsReviewedConfigOrManifest(t *testing.T) {
+	ref := "example/service@sha256:" + strings.Repeat("a", 64)
+	step := WorkflowStep{Command: control.Command{Image: ref, Platform: "linux/amd64"}, ImageID: "sha256:" + strings.Repeat("b", 64), ImageIDAlternatives: []string{"sha256:" + strings.Repeat("a", 64)}}
+	result := control.Result{Image: ref, Platform: "linux/amd64", ImageID: step.ImageID}
+	if !workflowPreparedIdentity(step, result) {
+		t.Fatal("classic image store rejected")
+	}
+	result.ImageID = step.ImageIDAlternatives[0]
+	if !workflowPreparedIdentity(step, result) {
+		t.Fatal("manifest image store rejected")
+	}
+	result.ImageID = "sha256:" + strings.Repeat("c", 64)
+	if workflowPreparedIdentity(step, result) {
+		t.Fatal("unreviewed identity accepted")
+	}
+	result.ImageID = step.ImageID
+	result.Platform = "linux/arm64"
+	if workflowPreparedIdentity(step, result) {
+		t.Fatal("other architecture accepted")
+	}
+}
+
+func TestWorkflowAlternativeCannotWidenMutationScope(t *testing.T) {
+	ref := "example/service@sha256:" + strings.Repeat("a", 64)
+	p := WorkflowPlan{Group: "example", Reason: "fixture", CacheOnly: true, Targets: []WorkflowTarget{{Service: "service", Host: "host", Image: ref, ImageID: "sha256:" + strings.Repeat("b", 64), ScopeRevision: strings.Repeat("c", 64)}}, Steps: []WorkflowStep{{Command: control.Command{HostID: "host", Service: "service", Action: "prepare-image", Image: ref, Platform: "linux/amd64"}, ImageID: "sha256:" + strings.Repeat("b", 64), ImageIDAlternatives: []string{"sha256:" + strings.Repeat("a", 64)}}}}
+	if validWorkflowPlan(p) != nil {
+		t.Fatal("approved manifest alternative rejected")
+	}
+	p.Steps[0].ImageIDAlternatives[0] = "sha256:" + strings.Repeat("d", 64)
+	if validWorkflowPlan(p) == nil {
+		t.Fatal("arbitrary alternative accepted")
+	}
+	p.Steps[0].ImageIDAlternatives[0] = "sha256:" + strings.Repeat("a", 64)
+	p.CacheOnly = false
+	p.Steps[0].Command.Action = "deploy"
+	p.Steps[0].Command.Platform = ""
+	if validWorkflowPlan(p) == nil {
+		t.Fatal("mutation did not freeze a single runtime identity")
+	}
+}

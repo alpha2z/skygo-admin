@@ -33,10 +33,11 @@ type WorkflowTarget struct {
 	ImageID       string `json:"image_id"`
 }
 type WorkflowStep struct {
-	Label   string          `json:"label"`
-	Command control.Command `json:"command"`
-	ImageID string          `json:"image_id,omitempty"`
-	When    string          `json:"when,omitempty"` // running or stopped; conditions cannot add scope.
+	ImageIDAlternatives []string        `json:"image_id_alternatives,omitempty"`
+	Label               string          `json:"label"`
+	Command             control.Command `json:"command"`
+	ImageID             string          `json:"image_id,omitempty"`
+	When                string          `json:"when,omitempty"` // running or stopped; conditions cannot add scope.
 }
 type WorkflowPlan struct {
 	Group     string           `json:"group"`
@@ -116,6 +117,17 @@ func validWorkflowPlan(p WorkflowPlan) error {
 		case "prepare-image", "extension", "stop", "start", "deploy", "rollback", "health":
 		default:
 			return errors.New("unsupported workflow action")
+		}
+		// Docker stores may identify a pulled image by its configuration or by
+		// the exact manifest digest. The only alternative is the reviewed digest
+		// itself, and only cache preparation may use this bounded alternative.
+		if len(step.ImageIDAlternatives) > 1 {
+			return errors.New("invalid image identity alternatives")
+		}
+		for _, id := range step.ImageIDAlternatives {
+			if c.Action != "prepare-image" || !validRuntimeImageID(id) || !strings.HasSuffix(c.Image, "@"+id) || id == step.ImageID {
+				return errors.New("invalid image identity alternative")
+			}
 		}
 		c.Version = 1
 		c.ID = "validation"
@@ -436,7 +448,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 				}
 				identityBad := w.Position >= len(activeSteps)
 				if !identityBad && child.Action == "prepare-image" {
-					identityBad = result.ImageID != activeSteps[w.Position].ImageID || result.Image != activeSteps[w.Position].Command.Image || result.Platform != activeSteps[w.Position].Command.Platform
+					identityBad = !workflowPreparedIdentity(activeSteps[w.Position], result)
 				}
 				if child.Status != "succeeded" || identityBad || (child.Action == "health" && !result.Healthy) {
 					if len(p.Rollback) > 0 && !w.RollingBack {
@@ -645,4 +657,19 @@ func (s *Server) workflowDispatch(tx *gorm.DB, child Task) error {
 
 func workflowStepID(w Workflow, position int) string {
 	return "wf-" + control.Digest([]byte(fmt.Sprintf("%s/%t/%d", w.ID, w.RollingBack, position)))[:48]
+}
+
+func workflowPreparedIdentity(step WorkflowStep, result control.Result) bool {
+	if result.Image != step.Command.Image || result.Platform != step.Command.Platform {
+		return false
+	}
+	if result.ImageID == step.ImageID {
+		return true
+	}
+	for _, id := range step.ImageIDAlternatives {
+		if result.ImageID == id {
+			return true
+		}
+	}
+	return false
 }

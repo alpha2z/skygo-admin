@@ -1,4 +1,4 @@
-FROM golang:1.25.5-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25.5-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN GOWORK=off go mod download
@@ -9,7 +9,9 @@ COPY agent ./agent
 COPY control ./control
 COPY web ./web
 COPY admin-web ./admin-web
-RUN CGO_ENABLED=0 GOWORK=off go build -trimpath -o /ops-agent ./cmd/ops-agent
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOWORK=off go build -trimpath -o /ops-agent ./cmd/ops-agent
 FROM docker:29-cli
 COPY --from=build /ops-agent /usr/local/bin/ops-agent
 ENTRYPOINT ["ops-agent"]
