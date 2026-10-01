@@ -73,8 +73,13 @@ func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 			return nil, errors.New("invalid agent action registration")
 		}
 	}
+	for name, p := range cfg.Workflows {
+		if !control.Identifier.MatchString(name) || !permissionID.MatchString(p.Permission) || !permissionID.MatchString(p.ApprovalPermission) || p.Resolve == nil {
+			return nil, errors.New("invalid workflow provider registration")
+		}
+	}
 	var version SchemaVersion
-	if db.First(&version, 1).Error != nil || version.Version != 4 {
+	if db.First(&version, 1).Error != nil || version.Version != 5 {
 		return nil, errors.New("run admin-api -migrate before starting")
 	}
 	m, err := model.NewModelFromString(casbinModel)
@@ -163,6 +168,7 @@ func (s *Server) Start(parent context.Context) error {
 		for {
 			work, done := context.WithTimeout(ctx, 5*time.Second)
 			_ = s.expireTasks(work)
+			_ = s.workflowTick(work)
 			done()
 			select {
 			case <-ctx.Done():
@@ -242,7 +248,7 @@ func (s *Server) Router() *gin.Engine {
 	r.GET("/api/v1/auth/captcha", s.issueLoginCaptcha)
 	r.POST("/api/v1/login", s.login)
 	r.GET("/api/v1/auth/settings", func(c *gin.Context) {
-		c.JSON(200, gin.H{"totp_enabled": s.cfg.TOTPEnabled, "email_confirmation_enabled": !s.cfg.SkipEmailConfirmation, "captcha_required": true})
+		c.JSON(200, gin.H{"totp_enabled": s.cfg.TOTPEnabled, "email_confirmation_enabled": !s.cfg.SkipEmailConfirmation, "captcha_required": true, "task_request_id_supported": true})
 	})
 	a := r.Group("/api/v1", s.authenticate(), s.csrf())
 	a.GET("/session", func(c *gin.Context) {
@@ -285,6 +291,11 @@ func (s *Server) Router() *gin.Engine {
 	a.POST("/publications", s.require("ops.write"), s.require("build.read"), s.createPublication)
 	a.POST("/publications/:id/approve", s.require("ops.approve"), s.approvePublication)
 	a.POST("/publications/:id/reject", s.require("ops.approve"), s.rejectPublication)
+	a.GET("/workflows", s.require("ops.read"), s.workflowsList)
+	a.GET("/workflows/:id", s.require("ops.read"), s.workflowDetail)
+	a.POST("/workflows/preview", s.require("ops.read"), s.workflowPreview)
+	a.POST("/workflows", s.require("ops.write"), s.workflowCreate)
+	a.POST("/workflows/:id/:decision", s.require("ops.approve"), s.workflowReview)
 	a.GET("/image-cleanup/resources", s.require("ops.read"), s.cleanupInventory)
 	a.GET("/image-cleanup", s.require("ops.read"), s.cleanupList)
 	a.POST("/image-cleanup", s.require("ops.write"), s.previewCleanup)

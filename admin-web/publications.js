@@ -22,12 +22,12 @@ const PublicationUI = (() => {
  function locationFor(s,systemUpdate=false){const p=new URLSearchParams();for(const k of ['host','release','request'])if(s[k])p.set(k,s[k]);if(s.selected!==null)p.set('selected',s.selected.join(','));return (systemUpdate?'#system-update?':'#publication?')+p;}
  function selection(targets,selected){const eligible=targets.filter(t=>t.available&&t.changed).map(t=>t.service);return selected===null?eligible:selected.filter(id=>eligible.includes(id));}
  function canSubmit(targets,selected){return selected.length>0&&selected.every(id=>targets.some(t=>t.service===id&&t.changed&&t.available&&t.preparation==='ready'));}
- function node(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;}
+ function node(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=typeof AdminLocale==='undefined'?text:AdminLocale.text(text);return n;}
  async function render(ctx){
   dispose();
   const {root,api,allowed,notice,isCurrent,refresh,sessionID,systemUpdate=false}=ctx;
-  const s=state(location.hash),panel=node('section');root.replaceChildren(panel);
-  const update=()=>history.replaceState(null,'',locationFor(s,systemUpdate));
+  const s=ctx.publicationState||state(location.hash),panel=node('section');root.replaceChildren(panel);
+  const update=()=>ctx.savePublicationState?ctx.savePublicationState(s):history.replaceState(null,'',locationFor(s,systemUpdate));
   const intentChanged=()=>{s.request='';update();refresh();};
   function button(text,action,disabled=false){const b=node('button',text);b.type='button';b.disabled=disabled||busy;b.onclick=async()=>{if(busy)return;busy=true;b.disabled=true;try{await action();}catch(e){notice(e.message);}finally{busy=false;if(isCurrent())await refresh();}};return b;}
   if(systemUpdate){
@@ -58,13 +58,13 @@ const PublicationUI = (() => {
   for(const p of records){const row=node('p');row.append(button(p.id+' · '+p.status,async()=>{s.request=p.id;s.host=p.host_id;s.release=p.release_id;try{s.selected=JSON.parse(p.selection);}catch{s.selected=[];}update();}));historyPanel.append(row);}
   panel.append(historyPanel);
   const releases=await api('releases');if(!isCurrent())return;
-  const version=node('select');version.append(new Option('Choose trusted version',''));for(const r of releases)version.append(new Option(DistributionUI.buildTime(r.build_started_at)+' · '+r.id+' · '+r.manifest.build.ref+' · '+r.manifest.build.source_commit.slice(0,12),r.id));
+  const version=node('select');version.append(new Option('选择可信版本',''));for(const r of releases)version.append(new Option(DistributionUI.buildTime(r.build_started_at)+' · '+r.id+' · '+r.manifest.build.ref+' · '+r.manifest.build.source_commit.slice(0,12),r.id));
   if(s.release&&!releases.some(r=>r.id===s.release)){const old=await api('releases/'+encodeURIComponent(s.release));version.append(new Option(old.id,old.id));}
   version.value=s.release;version.onchange=()=>{s.release=version.value;s.selected=null;intentChanged();};const versionLabel=node('label','Trusted version');versionLabel.append(version);panel.append(versionLabel);
   if(!s.release)panel.append(node('p','Register a signed build in Versions & upgrades, then select it here. Current inventory is shown below; preparation requires a trusted version.'));
   const data=await api('publication-candidates'+(s.release?'?release_id='+encodeURIComponent(s.release):''));if(!isCurrent())return;
   panel.append(node('p','Registered hosts: '+data.host_count));
-  const hostSelect=node('select');hostSelect.append(new Option('Choose host',''));for(const h of data.hosts)hostSelect.append(new Option(h.host_id+(h.reason?' · '+h.reason:''),h.host_id));
+  const hostSelect=node('select');hostSelect.append(new Option('选择主机',''));for(const h of data.hosts)hostSelect.append(new Option(h.host_id+(h.reason?' · '+h.reason:''),h.host_id));
   if(s.host&&!data.hosts.some(h=>h.host_id===s.host)){hostSelect.append(new Option(s.host+' · unavailable',s.host));}
   hostSelect.value=s.host;hostSelect.onchange=()=>{s.host=hostSelect.value;s.selected=null;intentChanged();};const hostLabel=node('label','Target host');hostLabel.append(hostSelect);panel.append(hostLabel);
   const h=data.hosts.find(h=>h.host_id===s.host);
@@ -72,7 +72,7 @@ const PublicationUI = (() => {
   if(h.reason){panel.append(node('p',h.reason));return;}
   s.selected=selection(h.targets,s.selected);update();
   for(const t of h.targets){
-   const card=node('article'),label=node('label'),check=node('input');check.type='checkbox';check.checked=s.selected.includes(t.service);check.disabled=!t.available||!t.changed||busy;check.onchange=()=>{s.selected=check.checked?[...s.selected,t.service]:s.selected.filter(x=>x!==t.service);intentChanged();};label.append(check,document.createTextNode('Replace '+t.service+' ('+t.kind+')'));card.append(label);
+   const card=node('article'),label=node('label'),check=node('input');card.className='publication-target';check.type='checkbox';check.checked=s.selected.includes(t.service);check.disabled=!t.available||!t.changed||busy;check.onchange=()=>{s.selected=check.checked?[...s.selected,t.service]:s.selected.filter(x=>x!==t.service);intentChanged();};label.append(check,node('span','Replace '+t.service+' ('+t.kind+')'));card.append(label);
    card.append(node('p','Current image: '+t.current_image_id));const p=t.provenance;
    card.append(node('p',p.status==='matched'?'Version '+p.release_id+' · Source: '+p.ref+' · '+p.commit.slice(0,12)+' · built '+DistributionUI.buildTime(p.build_started_at):'Source '+p.status+' (no tag-based inference)'));
    card.append(node('p',t.available?(t.changed?'Target '+t.image:'Already runs target image'):s.release?'This version has no matching image; retain current image.':'Select a trusted version to compare images.'));

@@ -78,6 +78,9 @@ func (a *Agent) handleEnvDeployment(ctx context.Context, e control.Envelope, c c
 		}
 	}
 	if !recovering {
+		if a.checkWorkflowLocal(work, s, c) != nil {
+			return finish(control.Result{ID: c.ID, Status: "failed", Code: "WORKFLOW_SCOPE_CHANGED"})
+		}
 		if a.cfg.Guard != nil {
 			if err := a.cfg.Guard(work, s, c); err != nil {
 				return finish(control.Result{ID: c.ID, Status: "failed", Code: "LOCAL_POLICY_REJECTED"})

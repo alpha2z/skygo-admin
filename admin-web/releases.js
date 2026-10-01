@@ -16,7 +16,7 @@ const ReleaseUI = (() => {
     return {tab: ['builds', 'versions', 'upgrade'].includes(query.get('tab')) ? query.get('tab') : 'builds', version: query.get('version') || '', host: query.get('host') || '', run: query.get('run') || ''};
   }
   function locationFor(value) { return '#release?' + new URLSearchParams(value).toString(); }
-  function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (cls) node.className = cls; return node; }
+  function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = typeof AdminLocale==='undefined'?text:AdminLocale.text(text); if (cls) node.className = cls; return node; }
   function button(title, action, disabled = false) { const b = el('button', title); b.type = 'button'; b.disabled = disabled; b.onclick = action; return b; }
   function card(title) { const c = el('article', undefined, 'release-card'); c.append(el('h3', title)); return c; }
   async function render(ctx) {
@@ -89,7 +89,7 @@ const ReleaseUI = (() => {
     const versions = await api('releases'); if (!isCurrent()) return;
     if (selected.version && !versions.some(v=>v.id===selected.version)) { versions.push(await api('releases/'+encodeURIComponent(selected.version))); if (!isCurrent()) return; }
     const picker = el('select'); picker.setAttribute('aria-label', 'Trusted version');
-    picker.append(new Option('Choose a verified version', ''));
+    picker.append(new Option('选择已验证版本', ''));
     for (const v of versions) picker.append(new Option(v.id, v.id));
     picker.value = versions.some(v => v.id === selected.version) ? selected.version : '';
     picker.onchange = () => navigate({version: picker.value}); root.append(picker);

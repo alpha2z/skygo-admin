@@ -230,6 +230,7 @@ func (a *Agent) run(ctx context.Context) {
 						}
 					}
 					a.decorateUnit(s, &o)
+					a.decorateWorkflow(s, &o)
 					observations = append(observations, o)
 				}
 			}
@@ -339,6 +340,13 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 		if !ok || x.Validate(cmd.Payload) != nil {
 			return result
 		}
+	}
+	if a.checkWorkflowLocal(ctx, service, cmd) != nil {
+		result.Code = "WORKFLOW_SCOPE_CHANGED"
+		if a.save(path, receipt{Digest: hash, Command: cmd, Result: result}) != nil {
+			return control.Result{ID: cmd.ID, Status: "uncertain", Code: "JOURNAL_UNAVAILABLE"}
+		}
+		return result
 	}
 	if a.cfg.Guard != nil {
 		if err := a.cfg.Guard(ctx, service, cmd); err != nil {

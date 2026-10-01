@@ -200,13 +200,13 @@ func TestIsolatedManagementWorkflow(t *testing.T) {
 	if err := Migrate(db); err != nil {
 		t.Fatal("idempotent migration failed")
 	}
-	if db.Save(&SchemaVersion{ID: 1, Version: 5}).Error != nil {
+	if db.Save(&SchemaVersion{ID: 1, Version: 6}).Error != nil {
 		t.Fatal("version fixture")
 	}
 	if Migrate(db) == nil {
 		t.Fatal("schema downgrade allowed")
 	}
-	db.Save(&SchemaVersion{ID: 1, Version: 4})
+	db.Save(&SchemaVersion{ID: 1, Version: 5})
 	if err = s.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}

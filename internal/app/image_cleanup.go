@@ -127,6 +127,27 @@ func (s *Server) cleanupResources(tx *gorm.DB) ([]CleanupResource, error) {
 			}
 		}
 	}
+	var workflows []Workflow
+	if tx.Find(&workflows).Error != nil {
+		return nil, errConflict
+	}
+	for _, w := range workflows {
+		if (w.Status == "succeeded" || w.Status == "rolled_back" || w.Status == "rejected") && time.Since(w.CreatedAt) > 7*24*time.Hour {
+			continue
+		}
+		var p WorkflowPlan
+		if json.Unmarshal([]byte(w.Plan), &p) != nil {
+			return nil, errConflict
+		}
+		for _, target := range p.Targets {
+			protect(target.Image, "Workflow rollback scope")
+			protect(target.ImageID, "Workflow rollback scope")
+		}
+		for _, step := range append(p.Steps, p.Rollback...) {
+			protect(step.Command.Image, "Workflow execution scope")
+			protect(step.ImageID, "Workflow execution scope")
+		}
+	}
 	sort.Slice(tasks, func(i, j int) bool { return tasks[i].CreatedAt.After(tasks[j].CreatedAt) })
 	lastTasks := map[string]int{}
 	for _, t := range tasks {

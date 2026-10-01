@@ -2,7 +2,7 @@
 const DistributionUI=(()=>{
  function buildTime(value){if(!value||!Number.isFinite(Date.parse(value)))return 'Build time unknown';return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(value))+' JST';}
  function bytes(value){return value===null||value===undefined?'unknown':Number(value).toLocaleString()+' B';}
- const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
+ const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=typeof AdminLocale==='undefined'?text:AdminLocale.text(text);return n;};
  async function render(ctx){const {root,api,allowed,notice,isCurrent,refresh,sessionID}=ctx;root.replaceChildren();let busy=false;
   function button(text,action,disabled){const b=node('button',text);b.type='button';b.disabled=!!disabled;b.onclick=async()=>{if(busy)return;busy=true;b.disabled=true;try{await action();}catch(e){notice(e.message);}finally{busy=false;if(isCurrent())await refresh();}};return b;}
   const bookmark=new URLSearchParams(location.hash.startsWith('#distribution?')?location.hash.slice(14):'');const selected=bookmark.get('delivery')||'';

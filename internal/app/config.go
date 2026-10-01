@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	Workflows                                          map[string]WorkflowProvider
 	TaskPolicy                                         func(context.Context, *gorm.DB, control.Command) error
 	RequestTimeout                                     time.Duration
 	UnixSocket                                         string

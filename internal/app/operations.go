@@ -174,7 +174,7 @@ func (s *Server) saveService(c *gin.Context) {
 		all := []control.Service{req}
 		for _, row := range rows {
 			if row.ID == req.ID {
-				if row.BusyTask != "" {
+				if row.BusyTask != "" || workflowLocked(tx, req.ID, "") {
 					return nil, errConflict
 				}
 				continue
@@ -261,11 +261,29 @@ func (s *Server) createTask(c *gin.Context) {
 			c.Status(403)
 			return
 		}
-	} else if req.Extension != "" || len(req.Payload) > 0 || req.RequestID != "" {
+	} else if req.Extension != "" || len(req.Payload) > 0 {
+		c.Status(400)
+		return
+	}
+	if req.RequestID != "" && !control.Identifier.MatchString(req.RequestID) {
 		c.Status(400)
 		return
 	}
 	s.change(c, body, "task.create", req.Service, func(tx *gorm.DB) (any, error) {
+		if req.RequestID != "" {
+			var old Task
+			err := tx.First(&old, "id = ?", req.RequestID).Error
+			if err == nil {
+				var previous control.Command
+				if json.Unmarshal([]byte(old.Payload), &previous) != nil || old.RequestedBy != uint32(c.GetUint("admin_id")) || previous.Service != req.Service || previous.Action != req.Action || previous.Image != req.Image || previous.Extension != req.Extension || old.ConfigVersion != req.ConfigVersion || !bytes.Equal(previous.Payload, req.Payload) {
+					return nil, errConflict
+				}
+				return unchangedMutation{old}, nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			}
+		}
 		var record ServiceRecord
 		if tx.First(&record, "id = ?", req.Service).Error != nil {
 			return nil, errConflict
@@ -278,7 +296,7 @@ func (s *Server) createTask(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
-		if req.Action == "extension" {
+		if req.RequestID != "" {
 			id = req.RequestID
 		}
 		cmd := control.Command{Version: 1, ID: id, HostID: def.HostID, Service: def.ID, Action: req.Action, Image: req.Image, ExpiresAt: time.Now().UTC().Add(time.Hour)}
@@ -288,18 +306,7 @@ func (s *Server) createTask(c *gin.Context) {
 			if err := s.checkExtensionTask(tx, cmd, uint32(c.GetUint("admin_id")), 0); err != nil {
 				return nil, err
 			}
-			var old Task
-			err := tx.First(&old, "id = ?", id).Error
-			if err == nil {
-				var previous control.Command
-				if json.Unmarshal([]byte(old.Payload), &previous) != nil || old.RequestedBy != uint32(c.GetUint("admin_id")) || previous.Service != cmd.Service || previous.Extension != cmd.Extension || !bytes.Equal(previous.Payload, cmd.Payload) {
-					return nil, errConflict
-				}
-				return unchangedMutation{old}, nil
-			}
-			if !errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, err
-			}
+
 		}
 
 		if req.Action == "configure" {
@@ -361,7 +368,7 @@ func (s *Server) approveTask(c *gin.Context) {
 			return nil, errConflict
 		}
 		var record ServiceRecord
-		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "id = ?", task.ServiceID).Error != nil || record.BusyTask != "" {
+		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "id = ?", task.ServiceID).Error != nil || record.BusyTask != "" || workflowLocked(tx, task.ServiceID, "") {
 			return nil, errConflict
 		}
 		var def control.Service
@@ -703,6 +710,9 @@ func (s *Server) commands(c *gin.Context) {
 			}
 			if t.Status == "queued" {
 				policyErr := s.checkExtensionTask(tx, command, t.RequestedBy, t.ApprovedBy)
+				if policyErr == nil && t.WorkflowID != "" {
+					policyErr = s.workflowDispatch(tx, t)
+				}
 				code := "EXTENSION_AUTHORIZATION_CHANGED"
 				if policyErr == nil && s.cfg.TaskPolicy != nil {
 					policyErr = s.cfg.TaskPolicy(c.Request.Context(), tx, command)

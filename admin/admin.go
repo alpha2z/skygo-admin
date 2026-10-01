@@ -29,3 +29,9 @@ var ReadSecret = settings.Secret
 
 type Host = app.Host
 type ServiceRecord = app.ServiceRecord
+
+type WorkflowProvider = app.WorkflowProvider
+type WorkflowPlan = app.WorkflowPlan
+type WorkflowTarget = app.WorkflowTarget
+type WorkflowStep = app.WorkflowStep
+type Workflow = app.Workflow

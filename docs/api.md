@@ -65,3 +65,19 @@ returns current control-unit inventory and provenance without preparing images.
 and `build.read` permissions still apply. Invalid explicit release IDs are rejected.
 Matched provenance includes nullable `build_started_at`; clients must display an
 unknown build time when absent. Publication writes and signed commands are unchanged.
+
+### Recoverable task requests
+
+`POST /api/v1/tasks` accepts an optional `request_id` for ordinary operations as
+well as the required identity for extension operations. Generate it once per user
+intent and retain it before submitting. An identical request by the same operator
+returns its original task, including terminal results. Reusing the identity with
+a different service, action, image, configuration version or extension payload is
+rejected. Independent approval and execution-time checks remain mandatory.
+
+`GET /api/v1/auth/settings` reports `task_request_id_supported: true` on supporting
+versions. Clients requiring durable retry semantics must disable their new task
+submission flow when this capability is absent; do not fall back to new identities
+after a lost response. Existing clients omitting `request_id` remain compatible.
+
+Approved extension workflows and schema v5 migration: [workflow contract](workflows.md).

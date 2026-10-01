@@ -1,6 +1,6 @@
 # 构建信任与兼容发布接口
 
-当前版本使用 schema v4，首次升级、选择式发布与 API/Web 恢复单元见 [发布说明](publications.md)。
+当前版本使用 schema v5，扩展流程与显式迁移见 [流程说明](workflows.md)。选择式发布与 API/Web 恢复单元见 [发布说明](publications.md)。
 下文保留构建信任与旧配对准备接口的兼容语义；新发布使用默认 Publish services 页面。
 
 本版将发布管理分为「构建记录 → 可信版本与镜像准备 → 升级任务」，发布设置集中展示

@@ -40,10 +40,11 @@ type ExtensionRoute struct {
 	Handler    gin.HandlerFunc
 }
 type ExtensionPage struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Permission string `json:"permission"`
-	Script     string `json:"script"`
+	Replaces   []string `json:"replaces,omitempty"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Permission string   `json:"permission"`
+	Script     string   `json:"script"`
 }
 
 var extensionID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
@@ -90,6 +91,13 @@ func validateExtensions(xs []Extension) error {
 			}
 			if _, err := fs.Stat(x.Assets, p.Script); err != nil {
 				return errors.New("missing extension script")
+			}
+			for _, name := range p.Replaces {
+				switch name {
+				case "services", "tasks", "builds", "publications", "system-update", "distribution":
+				default:
+					return errors.New("invalid navigation replacement")
+				}
 			}
 			pages[p.ID] = true
 		}
