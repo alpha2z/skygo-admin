@@ -233,7 +233,7 @@ func TestPublicationMigrationApprovalRecoveryMySQL(t *testing.T) {
 	}
 	invalidFields := map[string]any{"request_id": "untrusted-payload", "host_id": "host", "release_id": m.ID, "selected": []string{"api"}, "image": image}
 	check(t, call(r, owner, "POST", "/api/v1/publications", invalidFields, nil), 400)
-	for _, asset := range []string{"/publications.js", "/app.js", "/styles.css"} {
+	for _, asset := range []string{"/locale.js", "/distribution.js", "/releases.js", "/publications.js", "/app.js", "/styles.css"} {
 		check(t, call(r, nil, "GET", asset, nil, nil), 200)
 	}
 	check(t, call(r, nil, "GET", "/missing-module.js", nil, nil), 404)

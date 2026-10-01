@@ -222,7 +222,7 @@ func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		switch c.Request.URL.Path {
-		case "/", "/index.html", "/distribution.js", "/publications.js", "/releases.js", "/app.js", "/styles.css":
+		case "/", "/index.html", "/locale.js", "/distribution.js", "/publications.js", "/releases.js", "/app.js", "/styles.css":
 			c.Header("Cache-Control", "no-store")
 		}
 		c.Next()
@@ -316,7 +316,7 @@ func (s *Server) Router() *gin.Engine {
 	agents.POST("/results", s.result)
 	s.mountExtensions(r, a)
 	if s.cfg.WebFS != nil {
-		for _, file := range []string{"index.html", "distribution.js", "publications.js", "releases.js", "app.js", "styles.css"} {
+		for _, file := range []string{"index.html", "locale.js", "distribution.js", "publications.js", "releases.js", "app.js", "styles.css"} {
 			name := file
 			url := "/" + file
 			if file == "index.html" {
@@ -333,6 +333,7 @@ func (s *Server) Router() *gin.Engine {
 		}
 	} else {
 		r.StaticFile("/", s.cfg.WebRoot+"/index.html")
+		r.StaticFile("/locale.js", s.cfg.WebRoot+"/locale.js")
 		r.StaticFile("/distribution.js", s.cfg.WebRoot+"/distribution.js")
 		r.StaticFile("/publications.js", s.cfg.WebRoot+"/publications.js")
 		r.StaticFile("/releases.js", s.cfg.WebRoot+"/releases.js")
