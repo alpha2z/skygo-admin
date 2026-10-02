@@ -169,5 +169,5 @@ func decodeImageArchive(raw []byte) (release.SignedManifest, error) {
 }
 func (a SignedArtifact) Matches(manifest release.Manifest, config Config) bool {
 	b := manifest.Build
-	return manifest.Version == 1 && b.Repository == config.Repository && b.Workflow == config.Workflow && b.Ref == "refs/heads/"+a.Run.Ref && b.SourceCommit == a.Run.Commit && b.RunID == a.Run.ID && b.RunAttempt == a.Attempt && manifest.ID == fmt.Sprintf("ci-%d-%d", a.Run.ID, a.Attempt) && strings.HasPrefix(b.Ref, "refs/heads/")
+	return manifest.Validate() == nil && b.Repository == config.Repository && b.Workflow == config.Workflow && b.Ref == "refs/heads/"+a.Run.Ref && b.SourceCommit == a.Run.Commit && b.RunID == a.Run.ID && b.RunAttempt == a.Attempt && manifest.ID == fmt.Sprintf("ci-%d-%d", a.Run.ID, a.Attempt) && strings.HasPrefix(b.Ref, "refs/heads/")
 }
