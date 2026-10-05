@@ -29,7 +29,7 @@ func (s *captureSender) Send(_ context.Context, email, _, body string) error {
 	if s.fail {
 		return errors.New("test delivery failure")
 	}
-	s.code = strings.TrimPrefix(regexp.MustCompile(`验证码：[0-9]{8}`).FindString(body), "验证码：")
+	s.code = strings.TrimPrefix(regexp.MustCompile(`confirmation code: [0-9]{8}`).FindString(strings.ToLower(body)), "confirmation code: ")
 	if s.codes == nil {
 		s.codes = map[string]string{}
 	}
@@ -245,7 +245,7 @@ func TestSMTPRequiresTLSAndDeliversToLoopbackFixture(t *testing.T) {
 		}
 	}()
 	sender := SMTP{Address: listener.Addr().String(), From: "admin@example.com", AllowLoopbackPlaintext: true}
-	if err = sender.Send(context.Background(), "operator@example.com", "test", "验证码：12345678"); err != nil {
+	if err = sender.Send(context.Background(), "operator@example.com", "test", "Confirmation code: 12345678"); err != nil {
 		t.Fatal(err)
 	}
 	select {

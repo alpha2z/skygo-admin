@@ -69,11 +69,11 @@ func (s *Server) issueLoginCaptcha(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	ip, err := adminRequestIP(c)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "无法确认登录来源 IP"})
+		c.JSON(400, gin.H{"error": "Unable to determine the login source IP"})
 		return
 	}
 	if s.db == nil {
-		c.JSON(503, gin.H{"error": "登录验证码服务暂不可用"})
+		c.JSON(503, gin.H{"error": "Login captcha service is temporarily unavailable"})
 		return
 	}
 	hash := loginIPHash(ip)
@@ -130,18 +130,18 @@ func (s *Server) issueLoginCaptcha(c *gin.Context) {
 		return tx.Save(&row).Error
 	})
 	if err != nil {
-		c.JSON(503, gin.H{"error": "登录验证码服务暂不可用"})
+		c.JSON(503, gin.H{"error": "Login captcha service is temporarily unavailable"})
 		return
 	}
 	if retry > 0 {
 		seconds := (retry + 999) / 1000
 		c.Header("Retry-After", strconv.FormatInt(seconds, 10))
-		c.JSON(429, gin.H{"error": "验证码获取过于频繁，请等待倒计时结束", "code": "login_captcha_rate_limited", "retry_after_seconds": seconds})
+		c.JSON(429, gin.H{"error": "Captcha requests are too frequent; wait until the countdown ends", "code": "login_captcha_rate_limited", "retry_after_seconds": seconds})
 		return
 	}
 	picture, err := captchaPNG(code)
 	if err != nil {
-		c.JSON(503, gin.H{"error": "验证码生成失败"})
+		c.JSON(503, gin.H{"error": "Failed to generate captcha"})
 		return
 	}
 	c.JSON(200, gin.H{"captcha_id": id, "image": "data:image/png;base64," + base64.StdEncoding.EncodeToString(picture), "expires_at_ms": expires})

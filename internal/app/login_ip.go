@@ -55,7 +55,7 @@ func (s *Server) adminPasswordAttempt(c *gin.Context, password string, lookup fu
 	var user AdminUser
 	ip, err := adminRequestIP(c)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "无法确认登录来源 IP"})
+		c.JSON(400, gin.H{"error": "Unable to determine the login source IP"})
 		return user, false, false
 	}
 	sum := sha256.Sum256([]byte("skygo-admin-login:" + ip))
@@ -112,11 +112,11 @@ func (s *Server) adminPasswordAttempt(c *gin.Context, password string, lookup fu
 		return tx.Model(&row).Updates(map[string]any{"failed_attempts": row.FailedAttempts, "locked_until_ms": row.LockedUntilMS, "updated_at_ms": row.UpdatedAtMS}).Error
 	})
 	if err != nil {
-		c.JSON(503, gin.H{"error": "登录保护服务暂不可用，请稍后重试"})
+		c.JSON(503, gin.H{"error": "Login protection is temporarily unavailable; try again later"})
 		return user, false, false
 	}
 	if captchaInvalid {
-		c.JSON(400, gin.H{"error": "图片验证码无效或已过期，请重新获取", "code": "login_captcha_invalid"})
+		c.JSON(400, gin.H{"error": "Image captcha is invalid or expired; request a new one", "code": "login_captcha_invalid"})
 		return user, false, false
 	}
 	if blockedUntil != 0 {
@@ -125,7 +125,7 @@ func (s *Server) adminPasswordAttempt(c *gin.Context, password string, lookup fu
 			seconds = 1
 		}
 		c.Header("Retry-After", strconv.FormatInt(seconds, 10))
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "该 IP 连续 10 次密码错误，已冻结登录 10 分钟", "retry_after_seconds": seconds})
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Login from this IP is locked for 10 minutes after 10 consecutive incorrect passwords", "retry_after_seconds": seconds})
 		return user, false, false
 	}
 	return user, passwordOK, true

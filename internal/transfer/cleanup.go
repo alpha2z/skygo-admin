@@ -36,7 +36,7 @@ func ImageCleanup(ctx context.Context, p ops.ImageCleanup, directory string, run
 			return result, err
 		}
 		if strings.TrimSpace(string(raw)) != "" {
-			result.Reason = "镜像被运行或停止的容器引用"
+			result.Reason = "Image is referenced by a running or stopped container"
 			return result, nil
 		}
 	} else if p.Kind == "image" {
@@ -46,7 +46,7 @@ func ImageCleanup(ctx context.Context, p ops.ImageCleanup, directory string, run
 			return result, err
 		}
 		if strings.Contains(string(raw), p.Image.ImageID) {
-			result.Reason = "镜像身份无法确认"
+			result.Reason = "Unable to verify image identity"
 			return result, nil
 		}
 		result.Status = "absent"
@@ -99,7 +99,7 @@ func ImageCleanup(ctx context.Context, p ops.ImageCleanup, directory string, run
 	}
 	if _, err = run(ctx, "image", "rm", "--no-prune", runtimeID); err != nil {
 		result.Status = "protected"
-		result.Reason = "镜像仍有引用或 Docker 拒绝删除"
+		result.Reason = "Image is still referenced or Docker refused deletion"
 		return result, nil
 	}
 	result.Status = "deleted" // Shared layers make exact reclaimed bytes unavailable.

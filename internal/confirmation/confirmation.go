@@ -18,9 +18,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var ErrInvalid = errors.New("验证码无效、已过期或操作已变更")
-var ErrRate = errors.New("请求过于频繁，请稍后重试")
-var ErrPending = errors.New("操作正在执行或执行结果待核对，请勿重复执行")
+var ErrInvalid = errors.New("Confirmation code is invalid, expired, or the operation has changed")
+var ErrRate = errors.New("Too many requests; try again later")
+var ErrPending = errors.New("Operation is executing or its result awaits reconciliation; do not repeat it")
 
 type Challenge struct {
 	SecondEmail    string    `gorm:"size:254"`
@@ -92,7 +92,7 @@ func (s *Service) throttle(tx *gorm.DB, key string, limit int, spacing time.Dura
 }
 func (s *Service) Issue(ctx context.Context, admin uint32, email, ip, digest, summary string, secondEmail ...string) (Challenge, error) {
 	if s.DB == nil || s.Sender == nil || len(s.Secret) < 32 {
-		return Challenge{}, errors.New("邮件确认服务未配置")
+		return Challenge{}, errors.New("Email confirmation service is not configured")
 	}
 	n, err := rand.Int(rand.Reader, big.NewInt(100000000))
 	if err != nil {
@@ -135,9 +135,9 @@ func (s *Service) Issue(ctx context.Context, admin uint32, email, ip, digest, su
 		return Challenge{}, err
 	}
 	// Never store the plaintext code or SMTP error (which may contain credentials).
-	err = s.Sender.Send(ctx, email, "Skygo 管理操作确认", summary+"\n\n验证码："+code+"\n10 分钟内有效。仅确认邮件描述的操作；若非本人申请，请勿回填。")
+	err = s.Sender.Send(ctx, email, "Skygo administrative operation confirmation", summary+"\n\nConfirmation code: "+code+"\nValid for 10 minutes. Confirm only the operation described in this email. Do not enter the code if you did not request it.")
 	if err == nil && row.SecondEmail != "" {
-		err = s.Sender.Send(ctx, row.SecondEmail, "Skygo 管理员邮箱换绑确认", summary+"\n原邮箱验证码："+secondCode+"\n10 分钟内有效，非本人操作请勿提供。")
+		err = s.Sender.Send(ctx, row.SecondEmail, "Skygo administrator email change confirmation", summary+"\nOriginal email confirmation code: "+secondCode+"\nValid for 10 minutes. Do not provide the code if you did not request this operation.")
 	}
 	status := "pending"
 	if err != nil {
@@ -145,10 +145,10 @@ func (s *Service) Issue(ctx context.Context, admin uint32, email, ip, digest, su
 	}
 	result := s.DB.Model(&Challenge{}).Where("id = ? AND status = ?", row.ID, "sending").Update("status", status)
 	if err != nil {
-		return Challenge{}, errors.New("确认邮件发送失败，请稍后重试")
+		return Challenge{}, errors.New("Failed to send confirmation email; try again later")
 	}
 	if result.Error != nil || result.RowsAffected != 1 {
-		return Challenge{}, errors.New("确认邮件状态未保存，请稍后重试")
+		return Challenge{}, errors.New("Failed to save confirmation email state; try again later")
 	}
 	row.Status = status
 	return row, nil

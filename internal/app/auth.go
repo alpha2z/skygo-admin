@@ -177,14 +177,14 @@ func (s *Server) login(c *gin.Context) {
 	}
 	if !valid {
 		if err := s.recordAdminOTPFailure(user.ID); err != nil {
-			c.JSON(503, gin.H{"error": "登录保护服务暂不可用"})
+			c.JSON(503, gin.H{"error": "Login protection is temporarily unavailable"})
 			return
 		}
 		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
 	if err := s.db.Model(&user).Updates(map[string]any{"failed_attempts": 0, "locked_until_ms": 0, "updated_at_ms": time.Now().UnixMilli()}).Error; err != nil {
-		c.JSON(503, gin.H{"error": "登录服务暂不可用"})
+		c.JSON(503, gin.H{"error": "Login service is temporarily unavailable"})
 		return
 	}
 	expires := time.Now().Add(2 * time.Hour)
