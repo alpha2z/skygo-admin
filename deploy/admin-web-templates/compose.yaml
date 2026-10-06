@@ -1,0 +1,19 @@
+services:
+  admin-web:
+    image: ${ADMIN_WEB_IMAGE:?required}
+    restart: unless-stopped
+    ports: ["${ADMIN_WEB_BIND:-127.0.0.1}:${ADMIN_WEB_PORT:-18390}:8080"]
+    environment:
+      ADMIN_API_ORIGIN: ${ADMIN_API_ORIGIN:?required}
+      NGINX_ENVSUBST_FILTER: ^ADMIN_API_ORIGIN$
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+networks:
+  default:
+    external: true
+    name: ${ADMIN_NETWORK:?required}

@@ -1,0 +1,43 @@
+{
+  "host_id": "host-example-01",
+  "api_url": "https://admin.example.net",
+  "allow_loopback_http": false,
+  "token_file": "/run/private/agent-token",
+  "public_key_file": "/run/private/signing.pub",
+  "state_dir": "/var/lib/skygo-admin/agent",
+  "services": [
+    {
+      "id": "admin-api",
+      "compose_file": "/opt/skygo-admin/admin-api/compose.yaml",
+      "env_file": "/opt/skygo-admin/admin-api/.env",
+      "project": "skygo-admin-api",
+      "compose_service": "admin-api",
+      "image_variable": "ADMIN_API_IMAGE",
+      "allowed_images": [
+        "ghcr.io/alpha2z/skygo-admin/admin-api"
+      ],
+      "health_url": "http://127.0.0.1:18391/healthz",
+      "sync_image_env": true,
+      "allow_logs": false
+    },
+    {
+      "id": "admin-web",
+      "compose_file": "/opt/skygo-admin/admin-web/compose.yaml",
+      "env_file": "/opt/skygo-admin/admin-web/.env",
+      "project": "skygo-admin-web",
+      "compose_service": "admin-web",
+      "image_variable": "ADMIN_WEB_IMAGE",
+      "allowed_images": [
+        "ghcr.io/alpha2z/skygo-admin/admin-web"
+      ],
+      "health_url": "http://127.0.0.1:18390/healthz",
+      "sync_image_env": true,
+      "allow_logs": false
+    }
+  ],
+  "control_unit": {
+    "id": "management",
+    "api": "admin-api",
+    "web": "admin-web"
+  }
+}

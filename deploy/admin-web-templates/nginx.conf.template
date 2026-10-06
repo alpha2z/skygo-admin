@@ -1,0 +1,29 @@
+# UI assets must not survive an image rollback in the browser cache.
+# Public artifact/download locations retain their own caching contract.
+map $uri $admin_ui_cache_control {
+ default "";
+ "/" "no-store";
+ ~^/[^/]+\.(html|js|css)$ "no-store";
+ ~^/extensions/ "no-store";
+}
+server {
+ listen 8080;
+ server_name _;
+ resolver 127.0.0.11 valid=5s ipv6=off;
+ set $admin_backend "${ADMIN_API_ORIGIN}";
+ proxy_ssl_server_name on;
+ proxy_ssl_verify on;
+ proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+ root /usr/share/nginx/html;
+ include /etc/nginx/admin-extensions/*.conf;
+ client_max_body_size 512k;
+ add_header Cache-Control $admin_ui_cache_control always;
+ add_header X-Content-Type-Options nosniff always;
+ add_header X-Frame-Options DENY always;
+ add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; connect-src 'self'" always;
+ location /api/ { proxy_pass $admin_backend$request_uri; proxy_set_header Host $proxy_host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $remote_addr; }
+ location /extensions/ { proxy_pass $admin_backend$request_uri; proxy_set_header Host $proxy_host; }
+ location /agent/ { proxy_pass $admin_backend$request_uri; proxy_set_header Host $proxy_host; }
+ location /healthz { proxy_pass $admin_backend$request_uri; }
+ location / { try_files $uri $uri/ =404; }
+}

@@ -1,14 +1,15 @@
 #!/bin/sh
-# Download public API templates without changing an existing deployment.
+# Download public component templates without changing an existing deployment.
 set -eu
 umask 077
 
 usage() {
   cat <<'HELP'
-Usage: install-templates.sh [--output DIRECTORY] [--ref main|COMMIT_SHA]
+Usage: install-templates.sh [--component NAME] [--output DIRECTORY] [--ref main|COMMIT_SHA]
 
-Download Admin API configuration examples into a NEW directory.
-  --output DIRECTORY  Destination (default: ./admin-api-templates)
+Download one component into a NEW directory.
+  --component NAME    admin-api (default), admin-web or ops-agent
+  --output DIRECTORY  Destination (default: ./COMPONENT-templates)
   --ref REF           main or a full 40-character commit SHA (default: main)
   -h, --help          Show this help
 
@@ -16,19 +17,25 @@ Requires curl and tar. Existing destinations are never overwritten.
 Does not generate secrets, install Docker, migrate databases or start services.
 HELP
 }
-output=./admin-api-templates
+output=
+component=admin-api
 ref=main
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --output|--ref)
+    --output|--ref|--component)
       option=$1
       [ "$#" -ge 2 ] && [ -n "$2" ] || { echo 'Missing option value.' >&2; exit 2; }
-      case "$option" in --output) output=$2;; --ref) ref=$2;; esac
+      case "$option" in --output) output=$2;; --ref) ref=$2;; --component) component=$2;; esac
       shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo 'Unknown option. Use --help.' >&2; exit 2 ;;
   esac
 done
+case "$component" in
+  admin-api|admin-web|ops-agent) ;;
+  *) echo 'Unknown component. Use admin-api, admin-web or ops-agent.' >&2; exit 2;;
+esac
+[ -n "$output" ] || output=./$component-templates
 case "$ref" in
   main) ;;
   *) [ "${#ref}" -eq 40 ] || { echo 'Use main or a full commit SHA.' >&2; exit 2; }
@@ -50,12 +57,22 @@ curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
   --connect-timeout 15 --max-time 180 \
   --output "$stage/source.tar.gz" \
   "https://codeload.github.com/alpha2z/skygo-admin/tar.gz/$ref"
-prefix="skygo-admin-$ref/deploy/admin-api-templates"
-# Extract only the documented template files, not the entire source tree.
-for file in README.md admin.env.example generate-keys.py \
-  private/management-dsn.example private/jwt.example private/bootstrap.example \
-  private/signing.example private/signing.pub.example private/build-public.example \
-  private/github.json.example private/github-read-token.example private/smtp-password.example; do
+prefix="skygo-admin-$ref/deploy/$component-templates"
+# Keep component manifests explicit; never copy unrelated application files.
+case "$component" in
+  admin-api)
+    files='README.md admin.env.example generate-keys.py
+private/management-dsn.example private/jwt.example private/bootstrap.example
+private/signing.example private/signing.pub.example private/build-public.example
+private/github.json.example private/github-read-token.example private/smtp-password.example' ;;
+  admin-web)
+    files='README.md .env.example compose.yaml nginx.conf.template start.sh update.sh' ;;
+  ops-agent)
+    files='README.md .env.example compose.yaml start.sh update.sh
+private/agent.json.example private/agent.control-unit.json.example
+private/agent-token.example private/signing.pub.example' ;;
+esac
+for file in $files; do
   tar -xzf "$stage/source.tar.gz" -C "$stage" "$prefix/$file"
   [ -f "$stage/$prefix/$file" ] && [ ! -L "$stage/$prefix/$file" ] || {
     echo 'Incomplete or invalid template archive.' >&2; exit 1;

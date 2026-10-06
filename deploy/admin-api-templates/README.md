@@ -10,7 +10,7 @@
 
 ```sh
 curl -fL https://raw.githubusercontent.com/alpha2z/skygo-admin/main/install-templates.sh -o install-templates.sh
-sh install-templates.sh --output ./admin-api-templates
+sh install-templates.sh --component admin-api --output ./admin-api-templates
 ```
 
 只需要 curl 和 tar。脚本下载同一份源码快照中的模板，不启动服务、不生成凭据，

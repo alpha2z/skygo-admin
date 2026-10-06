@@ -1,0 +1,13 @@
+services:
+  ops-agent:
+    image: ${OPS_AGENT_IMAGE:?required}
+    restart: unless-stopped
+    network_mode: host
+    command: [-config, /run/private/agent.json]
+    environment:
+      DOCKER_CONFIG: /var/lib/skygo-admin/docker-config
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./private:/run/private:ro
+      - ./state:/var/lib/skygo-admin
+      - ${MANAGED_DEPLOYMENTS_DIR:?required}:${MANAGED_DEPLOYMENTS_DIR}

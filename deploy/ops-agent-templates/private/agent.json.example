@@ -1,0 +1,9 @@
+{
+  "host_id": "host-example-01",
+  "api_url": "https://admin.example.net",
+  "allow_loopback_http": false,
+  "token_file": "/run/private/agent-token",
+  "public_key_file": "/run/private/signing.pub",
+  "state_dir": "/var/lib/skygo-admin/agent",
+  "services": []
+}

@@ -14,7 +14,8 @@ class InstallTemplatesTest(unittest.TestCase):
             base = Path(tmp)
             archive = base / 'templates.tar.gz'
             with tarfile.open(archive, 'w:gz') as tar:
-                tar.add(ROOT / 'deploy/admin-api-templates', arcname='skygo-admin-main/deploy/admin-api-templates')
+                for component in ('admin-api', 'admin-web', 'ops-agent'):
+                    tar.add(ROOT / ('deploy/' + component + '-templates'), arcname='skygo-admin-main/deploy/' + component + '-templates')
             binary = base / 'bin'
             binary.mkdir()
             curl = binary / 'curl'
@@ -38,6 +39,17 @@ exit 1
             self.assertTrue((target / 'private/management-dsn.example').is_file())
             self.assertFalse((target / 'private/management-dsn').exists())
             self.assertFalse((target / '.env').exists())
+            for component in ('admin-web', 'ops-agent'):
+                dest = base / component
+                self.assertEqual(run(dest, ('--component', component)).returncode, 0)
+                for filename in ('compose.yaml', '.env.example', 'start.sh', 'update.sh', 'README.md'):
+                    self.assertTrue((dest / filename).is_file())
+                self.assertFalse((dest / '.env').exists())
+                self.assertFalse((dest / 'private/management-dsn.example').exists())
+                self.assertFalse((dest / 'private/agent-token').exists())
+                self.assertNotEqual(run(dest, ('--component', component)).returncode, 0)
+                self.assertNotEqual(subprocess.run(['sh', str(dest / 'start.sh')], capture_output=True).returncode, 0)
+            self.assertEqual(run(base / 'invalid', ('--component', 'unrecognized')).returncode, 2)
             marker = target / 'keep'
             marker.write_text('preserve')
             self.assertNotEqual(run(target).returncode, 0)

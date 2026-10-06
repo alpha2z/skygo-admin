@@ -133,3 +133,14 @@ different update procedures. Do not run both procedures concurrently.
 
 Admin API 私有文件格式、参数示例、匿名下载命令和不覆盖旧文件的密钥生成器：
 [配置模板下载与说明](deploy/admin-api-templates/README.md)。
+
+各组件的独立模板可用同一脚本分别下载，不覆盖已有目录：
+
+```sh
+sh install-templates.sh --component admin-api --output ./admin-api-templates
+sh install-templates.sh --component admin-web --output ./admin-web
+sh install-templates.sh --component ops-agent --output ./ops-agent
+```
+
+Web、Agent目录分别包含compose.yaml、.env.example、start.sh、update.sh和参数说明。
+先填配置再启动；安装脚本不初始化服务或写入真实凭据。

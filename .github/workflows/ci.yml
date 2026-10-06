@@ -38,3 +38,7 @@ jobs:
         env:
           SKYGO_ADMIN_API_IMAGE: skygo-admin/admin-api:ci
           SKYGO_ADMIN_WEB_IMAGE: skygo-admin/admin-web:ci
+      - name: Standalone Web template integration
+        run: python3 scripts/template-smoke.py
+        env:
+          SKYGO_ADMIN_WEB_IMAGE: skygo-admin/admin-web:ci
