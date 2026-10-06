@@ -24,7 +24,17 @@ type registryTransport func(*http.Request) (*http.Response, error)
 
 func (f registryTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func TestDistributionMigrationAttemptsAndCleanupMySQL(t *testing.T) {
+	for _, independent := range []bool{true, false} {
+		name := "single"
+		if independent {
+			name = "independent"
+		}
+		t.Run(name, func(t *testing.T) { distributionApproval(t, independent) })
+	}
+}
+func distributionApproval(t *testing.T, independent bool) {
 	db, cfg := releaseDB(t)
+	cfg.IndependentApprovalEnabled = independent
 	if db.Migrator().DropTable(&ImageDelivery{}, &ImageAttempt{}, &ImageCache{}, &ImageCleanup{}) != nil || db.Migrator().DropColumn(&Task{}, "DeliveryID") != nil || db.Migrator().DropColumn(&ImageRelease{}, "BuildStartedAt") != nil {
 		t.Fatal("v3 physical fixture")
 	}
@@ -156,8 +166,10 @@ func TestDistributionMigrationAttemptsAndCleanupMySQL(t *testing.T) {
 		t.Fatal("eligible cleanup resource missing", imageResource.Reason)
 	}
 	check(t, call(r, owner, "POST", "/api/v1/image-cleanup", map[string]string{"request_id": "cleanup-local", "resource_id": imageResource.ID}, nil), 200)
-	check(t, call(r, owner, "POST", "/api/v1/image-cleanup/cleanup-local/approve", nil, nil), 409)
-	check(t, call(r, reviewer, "POST", "/api/v1/image-cleanup/cleanup-local/approve", nil, nil), 200)
+	if independent {
+		check(t, call(r, owner, "POST", "/api/v1/image-cleanup/cleanup-local/approve", nil, nil), 409)
+		check(t, call(r, reviewer, "POST", "/api/v1/image-cleanup/cleanup-local/approve", nil, nil), 200)
+	}
 	observations[0].ImageID = imageID
 	heartbeat()
 	commands = call(r, nil, "GET", "/agent/v1/commands", nil, headers)
@@ -174,7 +186,9 @@ func TestDistributionMigrationAttemptsAndCleanupMySQL(t *testing.T) {
 	observations[0].ImageID = "sha256:" + strings.Repeat("f", 64)
 	heartbeat()
 	check(t, call(r, owner, "POST", "/api/v1/image-cleanup", map[string]string{"request_id": "cleanup-central", "resource_id": central.ID}, nil), 200)
-	check(t, call(r, reviewer, "POST", "/api/v1/image-cleanup/cleanup-central/approve", nil, nil), 200)
+	if independent {
+		check(t, call(r, reviewer, "POST", "/api/v1/image-cleanup/cleanup-central/approve", nil, nil), 200)
+	}
 	s.centralCleanupStep()
 	cleanup = ImageCleanup{}
 	db.First(&cleanup, "id = ?", "cleanup-central")

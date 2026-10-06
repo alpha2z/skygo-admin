@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	IndependentApprovalEnabled                         bool
 	Workflows                                          map[string]WorkflowProvider
 	TaskPolicy                                         func(context.Context, *gorm.DB, control.Command) error
 	RequestTimeout                                     time.Duration
@@ -76,6 +77,13 @@ func LoadConfig() (Config, error) {
 		c.SkipEmailConfirmation = true
 	default:
 		return c, errors.New("invalid email confirmation setting")
+	}
+	switch os.Getenv("ADMIN_INDEPENDENT_APPROVAL_ENABLED") {
+	case "", "false":
+	case "true":
+		c.IndependentApprovalEnabled = true
+	default:
+		return c, errors.New("invalid ADMIN_INDEPENDENT_APPROVAL_ENABLED")
 	}
 	c.SMTPAddress = os.Getenv("ADMIN_SMTP_ADDRESS")
 	c.SMTPUsername = os.Getenv("ADMIN_SMTP_USERNAME")

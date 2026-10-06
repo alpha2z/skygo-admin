@@ -79,7 +79,7 @@ func NewServer(cfg Config, db *gorm.DB) (*Server, error) {
 		}
 	}
 	var version SchemaVersion
-	if db.First(&version, 1).Error != nil || version.Version != 5 {
+	if db.First(&version, 1).Error != nil || version.Version != 6 {
 		return nil, errors.New("run admin-api -migrate before starting")
 	}
 	m, err := model.NewModelFromString(casbinModel)
@@ -259,7 +259,7 @@ func (s *Server) Router() *gin.Engine {
 				permissions = append(permissions, p[1])
 			}
 		}
-		c.JSON(200, gin.H{"id": c.GetUint("admin_id"), "role": c.GetString("admin_role"), "permissions": permissions})
+		c.JSON(200, gin.H{"id": c.GetUint("admin_id"), "role": c.GetString("admin_role"), "permissions": permissions, "independent_approval_enabled": s.cfg.IndependentApprovalEnabled})
 	})
 	a.POST("/logout", s.logout)
 	a.GET("/hosts", s.require("ops.read"), s.hosts)
@@ -270,6 +270,10 @@ func (s *Server) Router() *gin.Engine {
 	a.GET("/tasks", s.require("ops.read"), s.tasks)
 	a.POST("/tasks", s.require("ops.write"), s.createTask)
 	a.POST("/tasks/:id/approve", s.require("ops.approve"), s.approveTask)
+	a.POST("/tasks/:id/cancel", s.require("ops.write"), s.cancelPending("task"))
+	a.POST("/publications/:id/cancel", s.require("ops.write"), s.cancelPending("publication"))
+	a.POST("/workflows/:id/cancel", s.require("ops.write"), s.cancelPending("workflow"))
+	a.POST("/image-cleanup/:id/cancel", s.require("ops.write"), s.cancelPending("cleanup"))
 	a.POST("/tasks/:id/reject", s.require("ops.approve"), s.rejectTask)
 	a.GET("/configs", s.require("config.read"), s.configs)
 	a.POST("/configs", s.require("config.write"), s.createConfig)

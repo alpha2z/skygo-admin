@@ -9,7 +9,7 @@ backend, protocol, configuration tables or assets.
 - Administrator bootstrap, image captcha, optional TOTP, revocable sessions,
   role permissions, email-bound operation confirmation and hash-linked audit.
 - Host enrollment/revocation, heartbeat, service inventory and dependency checks.
-- Signed, separately approved service tasks with durable agent receipts.
+- Signed service tasks with configurable independent approval with durable agent receipts.
 - Digest-pinned Docker image deployment and rollback using local image allowlists.
 - Versioned JSON configuration and Skygo registry publication through approved tasks.
 - Optional, allowlisted GitHub workflow dispatch, signed artifact registration,
@@ -33,9 +33,11 @@ docker compose -f deploy/compose.yaml up -d admin-api admin-web
 
 Open <http://127.0.0.1:18390>. Read the bootstrap token from your **local**
 `runtime/secrets/bootstrap` file, initialize an administrator, and save the
-returned authenticator URI and recovery codes securely. Create a second
-administrator with the `approver` role: the task author cannot approve their own
-operation, including when both have the superadmin role.
+returned authenticator URI and recovery codes securely. One administrator is
+sufficient by default: authorized operations execute after confirmation. Set
+`ADMIN_INDEPENDENT_APPROVAL_ENABLED=true` and restart the API to require a separate
+approver for new operations. In that mode, even superadmins cannot approve their
+own requests. See [approval policy and migration](docs/approval.md).
 
 The local Compose example binds only loopback and explicitly disables email
 confirmation and secure cookies. Production requires HTTPS, secure cookies,
@@ -61,7 +63,8 @@ See [publication workflow and schema v3 migration](docs/publications.md) before 
 1. Register a service matching its agent inventory ID.
 2. Create a task (`health`, `start`, `stop`, `restart`, `deploy`, `rollback`,
    `configure`, or `logs`). Deployments specify `repository@sha256:digest`.
-3. Another administrator approves it. The host must be online and dependencies
+3. Confirm execution; when independent approval is enabled, another administrator
+   approves the request. The host must be online and dependencies
    ready. The agent verifies the signature and host binding before execution.
 4. Review the persisted result. Lost responses replay receipts, not operations.
    Uncertain results keep the service locked until evidence or operator

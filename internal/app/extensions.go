@@ -269,8 +269,8 @@ func (s *Server) mountExtensions(r *gin.Engine, a *gin.RouterGroup) {
 	}
 }
 
-// AgentAction is registered only by the composition binary. Approval always uses
-// the existing task journal and a different administrator.
+// AgentAction is registered only by the composition binary. Execution uses the
+// task journal and the operation's persisted approval policy.
 type AgentAction struct {
 	Permission         string
 	ApprovalPermission string
@@ -285,7 +285,11 @@ func (s *Server) checkExtensionTask(tx *gorm.DB, cmd control.Command, requester,
 	if !ok || x.Validate(cmd.Payload) != nil {
 		return errConflict
 	}
-	for id, permission := range map[uint32]string{requester: x.Permission, approver: x.ApprovalPermission} {
+	for _, identity := range []struct {
+		id         uint32
+		permission string
+	}{{requester, x.Permission}, {approver, x.ApprovalPermission}} {
+		id, permission := identity.id, identity.permission
 		if id == 0 {
 			continue
 		}

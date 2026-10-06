@@ -1,5 +1,10 @@
 # Composition SDK (v0.2)
 
+Current approval policy: single confirmation by default; independent approval
+requires `ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`. Existing records keep their
+original policy. See [schema v6 migration and API behavior](approval.md). References
+to separate approval below describe the enabled mode.
+
 The `admin`, `agent`, `control` and `web` packages expose supported composition
 interfaces. Applications import a pinned module version; they do not copy the
 server, frontend or Agent implementations and do not import `internal` packages.

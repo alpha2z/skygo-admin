@@ -69,7 +69,7 @@ func releaseDB(t *testing.T) (*gorm.DB, Config) {
 		t.Fatal("migration failed")
 	}
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
-	return db, Config{JWTSecret: strings.Repeat("j", 40), BootstrapToken: strings.Repeat("b", 40), SigningKey: key, SkipEmailConfirmation: true, WebRoot: "../../admin-web"}
+	return db, Config{IndependentApprovalEnabled: true, JWTSecret: strings.Repeat("j", 40), BootstrapToken: strings.Repeat("b", 40), SigningKey: key, SkipEmailConfirmation: true, WebRoot: "../../admin-web"}
 }
 func TestReleaseRegistrationAndPreparationMySQL(t *testing.T) {
 	db, cfg := releaseDB(t)

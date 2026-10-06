@@ -1,5 +1,9 @@
 # API v1
 
+Single confirmation is the default. Separate approval below applies when
+`ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`; existing requests retain their saved
+policy. See [approval modes and schema v6](approval.md).
+
 JSON management routes are under `/api/v1`. Browser authentication uses
 `admin_session` (HttpOnly, SameSite=Strict) and `admin_csrf`. Mutations require
 `X-CSRF-Token` equal to both the CSRF cookie and the server-side session value.
@@ -73,7 +77,7 @@ well as the required identity for extension operations. Generate it once per use
 intent and retain it before submitting. An identical request by the same operator
 returns its original task, including terminal results. Reusing the identity with
 a different service, action, image, configuration version or extension payload is
-rejected. Independent approval and execution-time checks remain mandatory.
+rejected. Configured approval policy and execution-time checks remain mandatory.
 
 `GET /api/v1/auth/settings` reports `task_request_id_supported: true` on supporting
 versions. Clients requiring durable retry semantics must disable their new task

@@ -37,23 +37,24 @@ type ServiceRecord struct {
 	BusyTask   string `gorm:"size:64" json:"busy_task"`
 }
 type Task struct {
-	WorkflowID    string     `gorm:"size:64;index" json:"workflow_id,omitempty"`
-	DeliveryID    string     `gorm:"size:64;index" json:"delivery_id,omitempty"`
-	PublicationID string     `gorm:"size:64;index" json:"publication_id,omitempty"`
-	FinishedAt    *time.Time `json:"finished_at,omitempty"`
-	ID            string     `gorm:"primaryKey;size:64" json:"id"`
-	HostID        string     `gorm:"size:64;index" json:"host_id"`
-	ServiceID     string     `gorm:"size:64;index" json:"service_id"`
-	Action        string     `gorm:"size:32" json:"action"`
-	Payload       string     `gorm:"type:mediumtext" json:"-"`
-	PayloadHash   string     `gorm:"size:64" json:"payload_hash"`
-	Status        string     `gorm:"size:32;index" json:"status"`
-	RequestedBy   uint32     `json:"requested_by"`
-	ApprovedBy    uint32     `json:"approved_by"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ExpiresAt     time.Time  `json:"expires_at"`
-	Result        string     `gorm:"type:mediumtext" json:"result"`
-	ConfigVersion string     `gorm:"size:64" json:"config_version,omitempty"`
+	SingleConfirmation bool       `gorm:"not null;default:false" json:"single_confirmation"`
+	WorkflowID         string     `gorm:"size:64;index" json:"workflow_id,omitempty"`
+	DeliveryID         string     `gorm:"size:64;index" json:"delivery_id,omitempty"`
+	PublicationID      string     `gorm:"size:64;index" json:"publication_id,omitempty"`
+	FinishedAt         *time.Time `json:"finished_at,omitempty"`
+	ID                 string     `gorm:"primaryKey;size:64" json:"id"`
+	HostID             string     `gorm:"size:64;index" json:"host_id"`
+	ServiceID          string     `gorm:"size:64;index" json:"service_id"`
+	Action             string     `gorm:"size:32" json:"action"`
+	Payload            string     `gorm:"type:mediumtext" json:"-"`
+	PayloadHash        string     `gorm:"size:64" json:"payload_hash"`
+	Status             string     `gorm:"size:32;index" json:"status"`
+	RequestedBy        uint32     `json:"requested_by"`
+	ApprovedBy         uint32     `json:"approved_by"`
+	CreatedAt          time.Time  `json:"created_at"`
+	ExpiresAt          time.Time  `json:"expires_at"`
+	Result             string     `gorm:"type:mediumtext" json:"result"`
+	ConfigVersion      string     `gorm:"size:64" json:"config_version,omitempty"`
 }
 type ConfigRelease struct {
 	ID          string    `gorm:"primaryKey;size:64" json:"id"`
@@ -75,7 +76,7 @@ type GitHubDispatch struct {
 func Migrate(db *gorm.DB) error {
 	if db.Migrator().HasTable(&SchemaVersion{}) {
 		var existing SchemaVersion
-		if err := db.First(&existing, 1).Error; err == nil && existing.Version > 5 {
+		if err := db.First(&existing, 1).Error; err == nil && existing.Version > 6 {
 			return errors.New("newer schema detected; downgrade refused")
 		} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("schema version unavailable")
@@ -88,7 +89,7 @@ func Migrate(db *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&AuditLock{ID: 1}).Error; err != nil {
 			return err
 		}
-		return tx.Save(&SchemaVersion{ID: 1, Version: 5}).Error
+		return tx.Save(&SchemaVersion{ID: 1, Version: 6}).Error
 	})
 }
 func (s *Server) appendAudit(tx *gorm.DB, operator uint32, action, target string, detail any) error {

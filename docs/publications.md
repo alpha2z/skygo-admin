@@ -1,5 +1,10 @@
 # 选择式发布与 schema v3
 
+Current approval policy: single confirmation by default; independent approval
+requires `ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`. Existing records keep their
+original policy. See [schema v6 migration and API behavior](approval.md). References
+to separate approval below describe the enabled mode.
+
 当前版本为 schema v5，见 [流程说明](workflows.md)。此前 schema v4 升级、归档分发与镜像变量持久化见 [分发说明](distribution.md)。
 
 默认「Publish services」页面把镜像缓存准备与服务发布分开：选择主机和一个可信版本，

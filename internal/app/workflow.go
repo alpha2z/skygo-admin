@@ -51,22 +51,23 @@ type WorkflowPlan struct {
 	Context   json.RawMessage  `json:"context,omitempty"`
 }
 type Workflow struct {
-	ID          string    `gorm:"primaryKey;size:64" json:"id"`
-	Provider    string    `gorm:"size:64" json:"provider"`
-	Group       string    `gorm:"column:scope_group;size:128;index" json:"group"`
-	Kind        string    `gorm:"size:32" json:"kind"`
-	RequestHash string    `gorm:"size:64" json:"-"`
-	Plan        string    `gorm:"type:mediumtext" json:"plan"`
-	Status      string    `gorm:"size:32;index" json:"status"`
-	Code        string    `gorm:"size:160" json:"code"`
-	RequestedBy uint32    `json:"requested_by"`
-	ApprovedBy  uint32    `json:"approved_by"`
-	Position    int       `json:"position"`
-	RollingBack bool      `json:"rolling_back"`
-	ChildID     string    `gorm:"size:64" json:"child_id"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	SingleConfirmation bool      `gorm:"not null;default:false" json:"single_confirmation"`
+	ID                 string    `gorm:"primaryKey;size:64" json:"id"`
+	Provider           string    `gorm:"size:64" json:"provider"`
+	Group              string    `gorm:"column:scope_group;size:128;index" json:"group"`
+	Kind               string    `gorm:"size:32" json:"kind"`
+	RequestHash        string    `gorm:"size:64" json:"-"`
+	Plan               string    `gorm:"type:mediumtext" json:"plan"`
+	Status             string    `gorm:"size:32;index" json:"status"`
+	Code               string    `gorm:"size:160" json:"code"`
+	RequestedBy        uint32    `json:"requested_by"`
+	ApprovedBy         uint32    `json:"approved_by"`
+	Position           int       `json:"position"`
+	RollingBack        bool      `json:"rolling_back"`
+	ChildID            string    `gorm:"size:64" json:"child_id"`
+	CreatedAt          time.Time `json:"created_at"`
+	ExpiresAt          time.Time `json:"expires_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 type WorkflowLock struct {
 	Resource   string `gorm:"primaryKey;size:160"`
@@ -207,7 +208,7 @@ func (s *Server) workflowCreate(c *gin.Context) {
 		}
 		raw, _ := json.Marshal(plan)
 		now := time.Now().UTC()
-		w := Workflow{ID: req.RequestID, Provider: req.Provider, Group: plan.Group, Kind: plan.Kind, RequestHash: hash, Plan: string(raw), Status: "pending", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(2 * time.Hour)}
+		w := Workflow{SingleConfirmation: !s.cfg.IndependentApprovalEnabled, ID: req.RequestID, Provider: req.Provider, Group: plan.Group, Kind: plan.Kind, RequestHash: hash, Plan: string(raw), Status: "pending", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: now, UpdatedAt: now, ExpiresAt: now.Add(2 * time.Hour)}
 		if plan.CacheOnly {
 			w.Status = "running"
 			if err = s.lockWorkflow(tx, w, plan); err != nil {
@@ -216,6 +217,9 @@ func (s *Server) workflowCreate(c *gin.Context) {
 		}
 		if err = tx.Create(&w).Error; err != nil {
 			return nil, err
+		}
+		if w.SingleConfirmation && !plan.CacheOnly {
+			return s.authorizeWorkflow(c, tx, w, provider)
 		}
 		return w, nil
 	})
@@ -243,27 +247,31 @@ func (s *Server) workflowReview(c *gin.Context) {
 		if c.Param("decision") != "approve" || w.RequestedBy == uint32(c.GetUint("admin_id")) || time.Now().After(w.ExpiresAt) {
 			return nil, errConflict
 		}
-		var p WorkflowPlan
-		if json.Unmarshal([]byte(w.Plan), &p) != nil || validWorkflowPlan(p) != nil {
-			return nil, errConflict
-		}
-		if err := s.checkWorkflowScope(tx, w, p, true); err != nil {
-			return nil, err
-		}
-		if provider.Validate != nil {
-			if err := provider.Validate(c.Request.Context(), tx, p); err != nil {
-				return nil, err
-			}
-		}
-		if err := s.lockWorkflow(tx, w, p); err != nil {
-			return nil, err
-		}
-		w.ApprovedBy = uint32(c.GetUint("admin_id"))
-		w.Status = "running"
-		w.UpdatedAt = time.Now().UTC()
-		return w, tx.Save(&w).Error
+		return s.authorizeWorkflow(c, tx, w, provider)
 	})
 }
+func (s *Server) authorizeWorkflow(c *gin.Context, tx *gorm.DB, w Workflow, provider WorkflowProvider) (any, error) {
+	var p WorkflowPlan
+	if json.Unmarshal([]byte(w.Plan), &p) != nil || validWorkflowPlan(p) != nil {
+		return nil, errConflict
+	}
+	if err := s.checkWorkflowScope(tx, w, p, true); err != nil {
+		return nil, err
+	}
+	if provider.Validate != nil {
+		if err := provider.Validate(c.Request.Context(), tx, p); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.lockWorkflow(tx, w, p); err != nil {
+		return nil, err
+	}
+	w.ApprovedBy = uint32(c.GetUint("admin_id"))
+	w.Status = "running"
+	w.UpdatedAt = time.Now().UTC()
+	return w, tx.Save(&w).Error
+}
+
 func (s *Server) lockWorkflow(tx *gorm.DB, w Workflow, p WorkflowPlan) error {
 	resources := []string{"group:" + p.Group}
 	for _, t := range p.Targets {
@@ -516,7 +524,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 				w.Code = "AUTHORIZATION_CHANGED"
 				return save()
 			}
-			if !p.CacheOnly {
+			if !p.CacheOnly && !w.SingleConfirmation {
 				var reviewer AdminUser
 				if tx.First(&reviewer, w.ApprovedBy).Error != nil || !reviewer.Active || w.ApprovedBy == w.RequestedBy {
 					w.Status = "blocked"
@@ -575,7 +583,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 			if command.Validate() != nil {
 				return errConflict
 			}
-			if s.checkExtensionTask(tx, command, w.RequestedBy, w.ApprovedBy) != nil {
+			if s.checkExtensionTask(tx, command, w.RequestedBy, approvalIdentity(w.SingleConfirmation, w.ApprovedBy)) != nil {
 				w.Status = "blocked"
 				w.Code = "EXTENSION_AUTHORIZATION_CHANGED"
 				return save()
@@ -590,7 +598,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 				return errConflict
 			}
 			raw, _ := json.Marshal(command)
-			child := Task{ID: command.ID, WorkflowID: w.ID, HostID: target.Host, ServiceID: target.Service, Action: command.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: w.RequestedBy, ApprovedBy: w.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: w.ExpiresAt}
+			child := Task{SingleConfirmation: w.SingleConfirmation, ID: command.ID, WorkflowID: w.ID, HostID: target.Host, ServiceID: target.Service, Action: command.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: w.RequestedBy, ApprovedBy: w.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: w.ExpiresAt}
 			if err = tx.Create(&child).Error; err != nil {
 				return err
 			}
@@ -636,8 +644,8 @@ func (s *Server) workflowDispatch(tx *gorm.DB, child Task) error {
 	for _, identity := range []struct {
 		id         uint32
 		permission string
-	}{{w.RequestedBy, provider.Permission}, {w.RequestedBy, "ops.write"}, {w.ApprovedBy, provider.ApprovalPermission}, {w.ApprovedBy, "ops.approve"}} {
-		if p.CacheOnly && identity.id == 0 {
+	}{{w.RequestedBy, provider.Permission}, {w.RequestedBy, "ops.write"}, {approvalIdentity(w.SingleConfirmation, w.ApprovedBy), provider.ApprovalPermission}, {approvalIdentity(w.SingleConfirmation, w.ApprovedBy), "ops.approve"}} {
+		if (p.CacheOnly || w.SingleConfirmation) && identity.id == 0 {
 			continue
 		}
 		var user AdminUser

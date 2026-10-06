@@ -15,21 +15,22 @@ import (
 )
 
 type Publication struct {
-	ID            string    `gorm:"primaryKey;size:64" json:"id"`
-	HostID        string    `gorm:"size:64" json:"host_id"`
-	ReleaseID     string    `gorm:"size:64" json:"release_id"`
-	RequestDigest string    `gorm:"size:64" json:"request_digest"`
-	Selection     string    `gorm:"type:text" json:"selection"`
-	Scope         string    `gorm:"type:mediumtext" json:"scope"`
-	ScopeHash     string    `gorm:"size:64" json:"scope_hash"`
-	Envelope      string    `gorm:"type:mediumtext" json:"-"`
-	ExecutionID   string    `gorm:"size:64;uniqueIndex" json:"execution_id"`
-	RequestedBy   uint32    `json:"requested_by"`
-	ApprovedBy    uint32    `json:"approved_by"`
-	Status        string    `gorm:"size:32;index" json:"status"`
-	Code          string    `gorm:"size:160" json:"code,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
-	ExpiresAt     time.Time `json:"expires_at"`
+	SingleConfirmation bool      `gorm:"not null;default:false" json:"single_confirmation"`
+	ID                 string    `gorm:"primaryKey;size:64" json:"id"`
+	HostID             string    `gorm:"size:64" json:"host_id"`
+	ReleaseID          string    `gorm:"size:64" json:"release_id"`
+	RequestDigest      string    `gorm:"size:64" json:"request_digest"`
+	Selection          string    `gorm:"type:text" json:"selection"`
+	Scope              string    `gorm:"type:mediumtext" json:"scope"`
+	ScopeHash          string    `gorm:"size:64" json:"scope_hash"`
+	Envelope           string    `gorm:"type:mediumtext" json:"-"`
+	ExecutionID        string    `gorm:"size:64;uniqueIndex" json:"execution_id"`
+	RequestedBy        uint32    `json:"requested_by"`
+	ApprovedBy         uint32    `json:"approved_by"`
+	Status             string    `gorm:"size:32;index" json:"status"`
+	Code               string    `gorm:"size:160" json:"code,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	ExpiresAt          time.Time `json:"expires_at"`
 }
 type publicationRequest struct {
 	ID        string   `json:"request_id"`
@@ -298,7 +299,7 @@ func (s *Server) createPublication(c *gin.Context) {
 		raw, _ := json.Marshal(scope)
 		selected, _ := json.Marshal(req.Selected)
 		now := time.Now().UTC()
-		p := Publication{ID: req.ID, HostID: req.HostID, ReleaseID: req.ReleaseID, RequestDigest: digest, Selection: string(selected), Scope: string(raw), ScopeHash: control.Digest(raw), ExecutionID: "unit-" + control.Digest([]byte(req.ID))[:48], RequestedBy: uint32(c.GetUint("admin_id")), Status: "pending", CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute)}
+		p := Publication{SingleConfirmation: !s.cfg.IndependentApprovalEnabled, ID: req.ID, HostID: req.HostID, ReleaseID: req.ReleaseID, RequestDigest: digest, Selection: string(selected), Scope: string(raw), ScopeHash: control.Digest(raw), ExecutionID: "unit-" + control.Digest([]byte(req.ID))[:48], RequestedBy: uint32(c.GetUint("admin_id")), Status: "pending", CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute)}
 		cmd := control.Command{Version: 1, ID: p.ExecutionID, HostID: p.HostID, Service: scope.Unit.Targets[0].Service, Action: "control-unit", Unit: &scope.Unit, ExpiresAt: p.ExpiresAt}
 		envelope, err := control.Sign(cmd, s.cfg.SigningKey)
 		if err != nil {
@@ -306,7 +307,13 @@ func (s *Server) createPublication(c *gin.Context) {
 		}
 		signed, _ := json.Marshal(envelope)
 		p.Envelope = string(signed)
-		return p, tx.Create(&p).Error
+		if err := tx.Create(&p).Error; err != nil {
+			return nil, err
+		}
+		if p.SingleConfirmation {
+			return s.authorizePublication(c, tx, p.ID)
+		}
+		return p, nil
 	})
 }
 func (s *Server) publicationActor(tx *gorm.DB, id uint32, permission string) bool {
@@ -318,7 +325,7 @@ func (s *Server) publicationActor(tx *gorm.DB, id uint32, permission string) boo
 	return err == nil && allowed
 }
 func (s *Server) recheckPublication(tx *gorm.DB, p Publication) error {
-	if !s.publicationActor(tx, p.RequestedBy, "ops.write") || !s.publicationActor(tx, p.RequestedBy, "build.read") || (p.ApprovedBy != 0 && !s.publicationActor(tx, p.ApprovedBy, "ops.approve")) {
+	if !s.publicationActor(tx, p.RequestedBy, "ops.write") || !s.publicationActor(tx, p.RequestedBy, "build.read") || (!p.SingleConfirmation && p.ApprovedBy != 0 && !s.publicationActor(tx, p.ApprovedBy, "ops.approve")) {
 		return publicationError("AUTHORITY_CHANGED", "Requester or approver permissions are no longer valid.")
 	}
 	req := publicationRequest{ID: p.ID, HostID: p.HostID, ReleaseID: p.ReleaseID}
@@ -350,53 +357,57 @@ func (s *Server) recheckPublication(tx *gorm.DB, p Publication) error {
 }
 func (s *Server) approvePublication(c *gin.Context) {
 	s.change(c, nil, "publication.approve", c.Param("id"), func(tx *gorm.DB) (any, error) {
-		var p Publication
-		if tx.First(&p, "id = ?", c.Param("id")).Error != nil {
-			return nil, errConflict
-		}
-		approver := uint32(c.GetUint("admin_id"))
-		if p.RequestedBy == approver {
-			return nil, publicationError("INDEPENDENT_APPROVAL_REQUIRED", "A different administrator must approve this publication.")
-		}
-		if p.Status != "pending" {
-			if p.ApprovedBy == approver && p.ApprovedBy != 0 && p.Status != "rejected" && p.Status != "expired" {
-				return unchangedMutation{p}, nil
-			}
-			return nil, errConflict
-		}
-		if time.Now().After(p.ExpiresAt) {
-			return nil, publicationError("PUBLICATION_EXPIRED", "Publication approval window expired.")
-		}
-		p.ApprovedBy = approver
-		if err := s.recheckPublication(tx, p); err != nil {
-			return nil, err
-		}
-		var active Task
-		err := tx.Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).First(&active).Error
-		if err == nil {
-			return nil, publicationError("TASK_BLOCKING", "Task "+active.ID+" must finish before this control-plane publication.")
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-		var envelope control.Envelope
-		json.Unmarshal([]byte(p.Envelope), &envelope)
-		var cmd control.Command
-		json.Unmarshal(envelope.Payload, &cmd)
-		for _, t := range cmd.Unit.Targets {
-			result := tx.Model(&ServiceRecord{}).Where("id = ? AND busy_task = ?", t.Service, "").Update("busy_task", p.ExecutionID)
-			if result.Error != nil || result.RowsAffected != 1 {
-				return nil, errConflict
-			}
-		}
-		task := Task{ID: p.ExecutionID, PublicationID: p.ID, HostID: p.HostID, ServiceID: cmd.Service, Action: cmd.Action, Payload: string(envelope.Payload), PayloadHash: control.Digest(envelope.Payload), Status: "queued", RequestedBy: p.RequestedBy, ApprovedBy: p.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: p.ExpiresAt}
-		if err := tx.Create(&task).Error; err != nil {
-			return nil, err
-		}
-		p.Status = "queued"
-		return p, tx.Save(&p).Error
+		return s.authorizePublication(c, tx, c.Param("id"))
 	})
 }
+func (s *Server) authorizePublication(c *gin.Context, tx *gorm.DB, id string) (any, error) {
+	var p Publication
+	if tx.First(&p, "id = ?", id).Error != nil {
+		return nil, errConflict
+	}
+	approver := uint32(c.GetUint("admin_id"))
+	if !p.SingleConfirmation && p.RequestedBy == approver {
+		return nil, publicationError("INDEPENDENT_APPROVAL_REQUIRED", "A different administrator must approve this publication.")
+	}
+	if p.Status != "pending" {
+		if p.ApprovedBy == approver && p.ApprovedBy != 0 && p.Status != "rejected" && p.Status != "expired" {
+			return unchangedMutation{p}, nil
+		}
+		return nil, errConflict
+	}
+	if time.Now().After(p.ExpiresAt) {
+		return nil, publicationError("PUBLICATION_EXPIRED", "Publication approval window expired.")
+	}
+	p.ApprovedBy = approver
+	if err := s.recheckPublication(tx, p); err != nil {
+		return nil, err
+	}
+	var active Task
+	err := tx.Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).First(&active).Error
+	if err == nil {
+		return nil, publicationError("TASK_BLOCKING", "Task "+active.ID+" must finish before this control-plane publication.")
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	var envelope control.Envelope
+	json.Unmarshal([]byte(p.Envelope), &envelope)
+	var cmd control.Command
+	json.Unmarshal(envelope.Payload, &cmd)
+	for _, t := range cmd.Unit.Targets {
+		result := tx.Model(&ServiceRecord{}).Where("id = ? AND busy_task = ?", t.Service, "").Update("busy_task", p.ExecutionID)
+		if result.Error != nil || result.RowsAffected != 1 {
+			return nil, errConflict
+		}
+	}
+	task := Task{SingleConfirmation: p.SingleConfirmation, ID: p.ExecutionID, PublicationID: p.ID, HostID: p.HostID, ServiceID: cmd.Service, Action: cmd.Action, Payload: string(envelope.Payload), PayloadHash: control.Digest(envelope.Payload), Status: "queued", RequestedBy: p.RequestedBy, ApprovedBy: p.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: p.ExpiresAt}
+	if err := tx.Create(&task).Error; err != nil {
+		return nil, err
+	}
+	p.Status = "queued"
+	return p, tx.Save(&p).Error
+}
+
 func (s *Server) rejectPublication(c *gin.Context) {
 	s.change(c, nil, "publication.reject", c.Param("id"), func(tx *gorm.DB) (any, error) {
 		var p Publication

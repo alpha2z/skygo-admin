@@ -1,5 +1,10 @@
 # Approved application workflows (schema v5)
 
+Current approval policy: single confirmation by default; independent approval
+requires `ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`. Existing records keep their
+original policy. See [schema v6 migration and API behavior](approval.md). References
+to separate approval below describe the enabled mode.
+
 Applications may register `admin.WorkflowProvider` values in `Config.Workflows`.
 A provider resolves a small business intent into a bounded `WorkflowPlan`; the
 shared SDK owns request identity, independent approval, resource locks, signed

@@ -82,7 +82,18 @@ func (s *Server) change(c *gin.Context, body []byte, action, target string, fn f
 			result = unchanged.Value
 			return nil
 		}
-		return s.appendAudit(tx, admin, action, target, map[string]any{"confirmation": !s.cfg.SkipEmailConfirmation})
+		detail := map[string]any{"confirmation": !s.cfg.SkipEmailConfirmation}
+		switch row := result.(type) {
+		case Task:
+			detail["single_confirmation"] = row.SingleConfirmation
+		case Workflow:
+			detail["single_confirmation"] = row.SingleConfirmation
+		case Publication:
+			detail["single_confirmation"] = row.SingleConfirmation
+		case ImageCleanup:
+			detail["single_confirmation"] = row.SingleConfirmation
+		}
+		return s.appendAudit(tx, admin, action, target, detail)
 	})
 	status := 200
 	if err != nil {
@@ -345,101 +356,111 @@ func (s *Server) createTask(c *gin.Context) {
 			return nil, errConflict
 		}
 		b, _ := json.Marshal(cmd)
-		row := Task{ID: id, HostID: def.HostID, ServiceID: def.ID, Action: req.Action, Payload: string(b), PayloadHash: control.Digest(b), Status: "pending", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: time.Now().UTC(), ExpiresAt: cmd.ExpiresAt, ConfigVersion: req.ConfigVersion}
+		row := Task{SingleConfirmation: !s.cfg.IndependentApprovalEnabled, ID: id, HostID: def.HostID, ServiceID: def.ID, Action: req.Action, Payload: string(b), PayloadHash: control.Digest(b), Status: "pending", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: time.Now().UTC(), ExpiresAt: cmd.ExpiresAt, ConfigVersion: req.ConfigVersion}
 		if err = tx.Create(&row).Error; err != nil {
 			return nil, err
+		}
+		if row.SingleConfirmation {
+			return s.authorizeTask(c, tx, row.ID)
 		}
 		return row, nil
 	})
 }
 func (s *Server) approveTask(c *gin.Context) {
 	s.change(c, nil, "task.approve", c.Param("id"), func(tx *gorm.DB) (any, error) {
-		var lock AuditLock
-		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&lock, 1).Error != nil {
-			return nil, errConflict
-		}
-		var units int64
-		if tx.Model(&Publication{}).Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).Count(&units).Error != nil || units > 0 {
-			return nil, publicationError("PUBLICATION_BLOCKING", "An active publication holds the control-plane execution gate.")
-		}
+		return s.authorizeTask(c, tx, c.Param("id"))
+	})
+}
+func (s *Server) authorizeTask(c *gin.Context, tx *gorm.DB, id string) (any, error) {
+	var lock AuditLock
+	if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&lock, 1).Error != nil {
+		return nil, errConflict
+	}
+	var units int64
+	if tx.Model(&Publication{}).Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).Count(&units).Error != nil || units > 0 {
+		return nil, publicationError("PUBLICATION_BLOCKING", "An active publication holds the control-plane execution gate.")
+	}
 
-		var task Task
-		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&task, "id = ?", c.Param("id")).Error != nil || task.Status != "pending" || task.RequestedBy == uint32(c.GetUint("admin_id")) || !time.Now().Before(task.ExpiresAt) {
-			return nil, errConflict
-		}
-		var record ServiceRecord
-		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "id = ?", task.ServiceID).Error != nil || record.BusyTask != "" || workflowLocked(tx, task.ServiceID, "") {
-			return nil, errConflict
-		}
-		var def control.Service
-		if json.Unmarshal([]byte(record.Definition), &def) != nil || def.HostID != task.HostID {
-			return nil, errConflict
-		}
-		var host Host
-		if tx.First(&host, "id = ?", def.HostID).Error != nil || !host.Active || time.Since(host.LastSeen) > time.Minute {
-			return nil, errConflict
-		}
-		var payload control.Command
-		if json.Unmarshal([]byte(task.Payload), &payload) != nil {
-			return nil, errConflict
-		}
-		if s.cfg.TaskPolicy != nil {
-			if err := s.cfg.TaskPolicy(c.Request.Context(), tx, payload); err != nil {
-				return nil, err
-			}
-		}
-		if err := s.checkExtensionTask(tx, payload, task.RequestedBy, uint32(c.GetUint("admin_id"))); err != nil {
+	var task Task
+	if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&task, "id = ?", id).Error != nil || task.Status != "pending" || (!task.SingleConfirmation && task.RequestedBy == uint32(c.GetUint("admin_id"))) || !time.Now().Before(task.ExpiresAt) {
+		return nil, errConflict
+	}
+	if err := s.taskAuthority(tx, task); err != nil {
+		return nil, err
+	}
+	var record ServiceRecord
+	if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "id = ?", task.ServiceID).Error != nil || record.BusyTask != "" || workflowLocked(tx, task.ServiceID, "") {
+		return nil, errConflict
+	}
+	var def control.Service
+	if json.Unmarshal([]byte(record.Definition), &def) != nil || def.HostID != task.HostID {
+		return nil, errConflict
+	}
+	var host Host
+	if tx.First(&host, "id = ?", def.HostID).Error != nil || !host.Active || time.Since(host.LastSeen) > time.Minute {
+		return nil, errConflict
+	}
+	var payload control.Command
+	if json.Unmarshal([]byte(task.Payload), &payload) != nil {
+		return nil, errConflict
+	}
+	if s.cfg.TaskPolicy != nil {
+		if err := s.cfg.TaskPolicy(c.Request.Context(), tx, payload); err != nil {
 			return nil, err
 		}
-		if payload.SyncImageEnv {
-			var observations []control.Observation
-			json.Unmarshal([]byte(host.Observations), &observations)
-			ok := false
-			for _, o := range observations {
-				ok = ok || (o.Service == task.ServiceID && o.SyncImageEnv && o.InventoryRevision == payload.InventoryRevision && o.ImageID == payload.PreviousImageID)
-			}
-			if !ok {
+	}
+	if err := s.checkExtensionTask(tx, payload, task.RequestedBy, approvalIdentity(task.SingleConfirmation, uint32(c.GetUint("admin_id")))); err != nil {
+		return nil, err
+	}
+	if payload.SyncImageEnv {
+		var observations []control.Observation
+		json.Unmarshal([]byte(host.Observations), &observations)
+		ok := false
+		for _, o := range observations {
+			ok = ok || (o.Service == task.ServiceID && o.SyncImageEnv && o.InventoryRevision == payload.InventoryRevision && o.ImageID == payload.PreviousImageID)
+		}
+		if !ok {
+			return nil, errConflict
+		}
+	}
+	if task.Action == "start" || task.Action == "restart" || task.Action == "deploy" || task.Action == "rollback" {
+		for _, dependency := range def.DependsOn {
+			if !s.healthy(tx, dependency) {
 				return nil, errConflict
 			}
 		}
-		if task.Action == "start" || task.Action == "restart" || task.Action == "deploy" || task.Action == "rollback" {
-			for _, dependency := range def.DependsOn {
-				if !s.healthy(tx, dependency) {
+	}
+	if task.Action == "stop" {
+		var services []ServiceRecord
+		tx.Find(&services)
+		for _, r := range services {
+			var d control.Service
+			json.Unmarshal([]byte(r.Definition), &d)
+			for _, dep := range d.DependsOn {
+				if dep == def.ID && s.healthy(tx, d.ID) {
 					return nil, errConflict
 				}
 			}
 		}
-		if task.Action == "stop" {
-			var services []ServiceRecord
-			tx.Find(&services)
-			for _, r := range services {
-				var d control.Service
-				json.Unmarshal([]byte(r.Definition), &d)
-				for _, dep := range d.DependsOn {
-					if dep == def.ID && s.healthy(tx, d.ID) {
-						return nil, errConflict
-					}
-				}
-			}
-		}
-		if def.ControlPlane {
-			var count int64
-			if tx.Model(&Task{}).Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).Count(&count).Error != nil || count > 0 {
-				return nil, errConflict
-			}
-		}
-		record.BusyTask = task.ID
-		if tx.Save(&record).Error != nil {
+	}
+	if def.ControlPlane {
+		var count int64
+		if tx.Model(&Task{}).Where("status IN ?", []string{"queued", "dispatched", "uncertain"}).Count(&count).Error != nil || count > 0 {
 			return nil, errConflict
 		}
-		task.Status = "queued"
-		task.ApprovedBy = uint32(c.GetUint("admin_id"))
-		if tx.Save(&task).Error != nil {
-			return nil, errConflict
-		}
-		return task, nil
-	})
+	}
+	record.BusyTask = task.ID
+	if tx.Save(&record).Error != nil {
+		return nil, errConflict
+	}
+	task.Status = "queued"
+	task.ApprovedBy = uint32(c.GetUint("admin_id"))
+	if tx.Save(&task).Error != nil {
+		return nil, errConflict
+	}
+	return task, nil
 }
+
 func (s *Server) healthy(tx *gorm.DB, id string) bool {
 	var r ServiceRecord
 	if tx.First(&r, "id = ?", id).Error != nil {
@@ -709,7 +730,10 @@ func (s *Server) commands(c *gin.Context) {
 				continue
 			}
 			if t.Status == "queued" {
-				policyErr := s.checkExtensionTask(tx, command, t.RequestedBy, t.ApprovedBy)
+				policyErr := s.checkExtensionTask(tx, command, t.RequestedBy, approvalIdentity(t.SingleConfirmation, t.ApprovedBy))
+				if policyErr == nil {
+					policyErr = s.taskAuthority(tx, t)
+				}
 				if policyErr == nil && t.WorkflowID != "" {
 					policyErr = s.workflowDispatch(tx, t)
 				}

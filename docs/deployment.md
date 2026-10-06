@@ -1,5 +1,10 @@
 # Deployment and upgrades
 
+Current approval policy: single confirmation by default; independent approval
+requires `ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`. Existing records keep their
+original policy. See [schema v6 migration and API behavior](approval.md). References
+to separate approval below describe the enabled mode.
+
 ## Secrets and identity
 
 `cmd/init-local` creates fresh values in an ignored directory with restrictive

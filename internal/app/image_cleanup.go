@@ -29,16 +29,17 @@ type CleanupResource struct {
 	Reason   string `json:"reason,omitempty"`
 }
 type ImageCleanup struct {
-	ID          string    `gorm:"primaryKey;size:64" json:"id"`
-	Scope       string    `gorm:"type:mediumtext" json:"scope"`
-	ScopeHash   string    `gorm:"size:64" json:"scope_hash"`
-	Status      string    `gorm:"size:32;index" json:"status"`
-	RequestedBy uint32    `json:"requested_by"`
-	ApprovedBy  uint32    `json:"approved_by"`
-	TaskID      string    `gorm:"size:64" json:"task_id,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	Code        string    `gorm:"size:64" json:"code,omitempty"`
+	SingleConfirmation bool      `gorm:"not null;default:false" json:"single_confirmation"`
+	ID                 string    `gorm:"primaryKey;size:64" json:"id"`
+	Scope              string    `gorm:"type:mediumtext" json:"scope"`
+	ScopeHash          string    `gorm:"size:64" json:"scope_hash"`
+	Status             string    `gorm:"size:32;index" json:"status"`
+	RequestedBy        uint32    `json:"requested_by"`
+	ApprovedBy         uint32    `json:"approved_by"`
+	TaskID             string    `gorm:"size:64" json:"task_id,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	ExpiresAt          time.Time `json:"expires_at"`
+	Code               string    `gorm:"size:64" json:"code,omitempty"`
 }
 
 func resourceID(r CleanupResource) string {
@@ -317,69 +318,79 @@ func (s *Server) previewCleanup(c *gin.Context) {
 			}
 			raw, _ := json.Marshal(r)
 			now := time.Now().UTC()
-			row := ImageCleanup{ID: req.ID, Scope: string(raw), ScopeHash: control.Digest(raw), Status: "pending", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: now, ExpiresAt: now.Add(30 * time.Minute)}
-			return row, tx.Create(&row).Error
+			row := ImageCleanup{SingleConfirmation: !s.cfg.IndependentApprovalEnabled, ID: req.ID, Scope: string(raw), ScopeHash: control.Digest(raw), Status: "pending", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: now, ExpiresAt: now.Add(30 * time.Minute)}
+			if err := tx.Create(&row).Error; err != nil {
+				return nil, err
+			}
+			if row.SingleConfirmation {
+				return s.authorizeCleanup(c, tx, row.ID)
+			}
+			return row, nil
 		}
 		return nil, errConflict
 	})
 }
 func (s *Server) approveCleanup(c *gin.Context) {
 	s.change(c, nil, "images.cleanup.approve", c.Param("id"), func(tx *gorm.DB) (any, error) {
-		var row ImageCleanup
-		if tx.First(&row, "id = ?", c.Param("id")).Error != nil {
-			return nil, errConflict
-		}
-		if row.ApprovedBy == uint32(c.GetUint("admin_id")) && row.ApprovedBy != 0 && row.Status != "pending" && row.Status != "rejected" && row.Status != "expired" {
-			return unchangedMutation{row}, nil
-		}
-		if row.Status != "pending" || row.RequestedBy == uint32(c.GetUint("admin_id")) || time.Now().After(row.ExpiresAt) || !s.publicationActor(tx, row.RequestedBy, "ops.write") {
-			return nil, errConflict
-		}
-		var resource CleanupResource
-		if json.Unmarshal([]byte(row.Scope), &resource) != nil {
-			return nil, errConflict
-		}
-		rows, err := s.cleanupResources(tx)
-		if err != nil {
-			return nil, err
-		}
-		match := false
-		for _, r := range rows {
-			raw, _ := json.Marshal(r)
-			if r.ID == resource.ID && r.Reason == "" && control.Digest(raw) == row.ScopeHash {
-				match = true
-			}
-		}
-		if !match {
-			return nil, publicationError("CLEANUP_PREVIEW_CHANGED", "References or resource identity changed; create a new preview.")
-		}
-		row.ApprovedBy = uint32(c.GetUint("admin_id"))
-		if resource.Kind == "central" {
-			row.Status = "queued"
-			return row, tx.Save(&row).Error
-		}
-		var svc ServiceRecord
-		if tx.First(&svc, "id = ?", resource.Service).Error != nil || svc.BusyTask != "" {
-			return nil, errConflict
-		}
-		id := "clean-" + control.Digest([]byte(row.ID))[:48]
-		cmd := control.Command{Version: 1, ID: id, HostID: resource.HostID, Service: resource.Service, Action: "image-cleanup", Image: resource.Image, Cleanup: &control.Cleanup{Kind: resource.Kind, SHA256: resource.SHA256, ImageID: resource.ImageID, Platform: resource.Platform}, ExpiresAt: row.ExpiresAt}
-		if cmd.Validate() != nil {
-			return nil, errConflict
-		}
-		raw, _ := json.Marshal(cmd)
-		task := Task{ID: id, HostID: resource.HostID, ServiceID: resource.Service, Action: cmd.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: row.RequestedBy, ApprovedBy: row.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: row.ExpiresAt}
-		if err := tx.Create(&task).Error; err != nil {
-			return nil, err
-		}
-		if err := tx.Model(&svc).Update("busy_task", id).Error; err != nil {
-			return nil, err
-		}
-		row.TaskID = id
-		row.Status = "queued"
-		return row, tx.Save(&row).Error
+		return s.authorizeCleanup(c, tx, c.Param("id"))
 	})
 }
+func (s *Server) authorizeCleanup(c *gin.Context, tx *gorm.DB, requestID string) (any, error) {
+	var row ImageCleanup
+	if tx.First(&row, "id = ?", requestID).Error != nil {
+		return nil, errConflict
+	}
+	if row.ApprovedBy == uint32(c.GetUint("admin_id")) && row.ApprovedBy != 0 && row.Status != "pending" && row.Status != "rejected" && row.Status != "expired" {
+		return unchangedMutation{row}, nil
+	}
+	if row.Status != "pending" || (!row.SingleConfirmation && row.RequestedBy == uint32(c.GetUint("admin_id"))) || time.Now().After(row.ExpiresAt) || !s.publicationActor(tx, row.RequestedBy, "ops.write") {
+		return nil, errConflict
+	}
+	var resource CleanupResource
+	if json.Unmarshal([]byte(row.Scope), &resource) != nil {
+		return nil, errConflict
+	}
+	rows, err := s.cleanupResources(tx)
+	if err != nil {
+		return nil, err
+	}
+	match := false
+	for _, r := range rows {
+		raw, _ := json.Marshal(r)
+		if r.ID == resource.ID && r.Reason == "" && control.Digest(raw) == row.ScopeHash {
+			match = true
+		}
+	}
+	if !match {
+		return nil, publicationError("CLEANUP_PREVIEW_CHANGED", "References or resource identity changed; create a new preview.")
+	}
+	row.ApprovedBy = uint32(c.GetUint("admin_id"))
+	if resource.Kind == "central" {
+		row.Status = "queued"
+		return row, tx.Save(&row).Error
+	}
+	var svc ServiceRecord
+	if tx.First(&svc, "id = ?", resource.Service).Error != nil || svc.BusyTask != "" {
+		return nil, errConflict
+	}
+	id := "clean-" + control.Digest([]byte(row.ID))[:48]
+	cmd := control.Command{Version: 1, ID: id, HostID: resource.HostID, Service: resource.Service, Action: "image-cleanup", Image: resource.Image, Cleanup: &control.Cleanup{Kind: resource.Kind, SHA256: resource.SHA256, ImageID: resource.ImageID, Platform: resource.Platform}, ExpiresAt: row.ExpiresAt}
+	if cmd.Validate() != nil {
+		return nil, errConflict
+	}
+	raw, _ := json.Marshal(cmd)
+	task := Task{SingleConfirmation: row.SingleConfirmation, ID: id, HostID: resource.HostID, ServiceID: resource.Service, Action: cmd.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: row.RequestedBy, ApprovedBy: row.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: row.ExpiresAt}
+	if err := tx.Create(&task).Error; err != nil {
+		return nil, err
+	}
+	if err := tx.Model(&svc).Update("busy_task", id).Error; err != nil {
+		return nil, err
+	}
+	row.TaskID = id
+	row.Status = "queued"
+	return row, tx.Save(&row).Error
+}
+
 func (s *Server) cleanupList(c *gin.Context) {
 	rows := []ImageCleanup{}
 	if s.db.Order("created_at DESC").Limit(200).Find(&rows).Error != nil {
@@ -455,7 +466,7 @@ func (s *Server) centralCleanupStep() {
 		for _, current := range rows {
 			allowed = allowed || (current.ID == r.ID && current.Reason == "")
 		}
-		if !allowed || time.Now().After(p.ExpiresAt) || !s.publicationActor(tx, p.RequestedBy, "ops.write") || !s.publicationActor(tx, p.ApprovedBy, "ops.approve") {
+		if !allowed || time.Now().After(p.ExpiresAt) || !s.publicationActor(tx, p.RequestedBy, "ops.write") || (!p.SingleConfirmation && !s.publicationActor(tx, p.ApprovedBy, "ops.approve")) {
 			p.Status = "failed"
 			p.Code = "CLEANUP_PROTECTED"
 			return tx.Save(&p).Error

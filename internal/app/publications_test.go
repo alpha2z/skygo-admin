@@ -15,7 +15,17 @@ import (
 )
 
 func TestPublicationMigrationApprovalRecoveryMySQL(t *testing.T) {
+	for _, independent := range []bool{true, false} {
+		name := "single"
+		if independent {
+			name = "independent"
+		}
+		t.Run(name, func(t *testing.T) { publicationApprovalRecovery(t, independent) })
+	}
+}
+func publicationApprovalRecovery(t *testing.T, independent bool) {
 	db, cfg := releaseDB(t)
+	cfg.IndependentApprovalEnabled = independent
 	// Recreate v2's physical schema, retaining an actual legacy task and receipt.
 	if db.Migrator().DropTable(&Publication{}) != nil || db.Migrator().DropColumn(&Task{}, "PublicationID") != nil {
 		t.Fatal("v2 fixture")
@@ -117,20 +127,25 @@ func TestPublicationMigrationApprovalRecoveryMySQL(t *testing.T) {
 	conflict := req
 	conflict.Selected = []string{"web"}
 	check(t, call(r, owner, "POST", "/api/v1/publications", conflict, nil), 409)
-	check(t, call(r, owner, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 409)
-	observations[0].InventoryRevision = strings.Repeat("d", 64)
-	heartbeat()
-	check(t, call(r, approver, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 409)
-	observations[0].InventoryRevision = strings.Repeat("c", 64)
-	heartbeat()
-	// Stale preparation fails approval, a fresh reinspection preserves the same scope.
-	stale := time.Now().Add(-6 * time.Minute)
-	db.Model(&Task{}).Where("id = ?", prepare.ID).Update("finished_at", stale)
-	check(t, call(r, approver, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 409)
-	db.Model(&Task{}).Where("id = ?", prepare.ID).Update("finished_at", time.Now().UTC())
-	check(t, call(r, approver, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 200)
+	if independent {
+		check(t, call(r, owner, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 409)
+		observations[0].InventoryRevision = strings.Repeat("d", 64)
+		heartbeat()
+		check(t, call(r, approver, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 409)
+		observations[0].InventoryRevision = strings.Repeat("c", 64)
+		heartbeat()
+		// Stale preparation fails approval, a fresh reinspection preserves the same scope.
+		stale := time.Now().Add(-6 * time.Minute)
+		db.Model(&Task{}).Where("id = ?", prepare.ID).Update("finished_at", stale)
+		check(t, call(r, approver, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 409)
+		db.Model(&Task{}).Where("id = ?", prepare.ID).Update("finished_at", time.Now().UTC())
+		check(t, call(r, approver, "POST", "/api/v1/publications/publish-a/approve", nil, nil), 200)
+	}
 	var p Publication
 	db.First(&p, "id = ?", req.ID)
+	if p.SingleConfirmation == independent || p.Status != "queued" {
+		t.Fatal("publication mode not persisted")
+	}
 	var locks int64
 	db.Model(&ServiceRecord{}).Where("busy_task = ?", p.ExecutionID).Count(&locks)
 	if locks != 2 {
@@ -195,7 +210,9 @@ func TestPublicationMigrationApprovalRecoveryMySQL(t *testing.T) {
 	heartbeat()
 	req.ID = "dispatch-drift"
 	check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 200)
-	check(t, call(r, approver, "POST", "/api/v1/publications/dispatch-drift/approve", nil, nil), 200)
+	if independent {
+		check(t, call(r, approver, "POST", "/api/v1/publications/dispatch-drift/approve", nil, nil), 200)
+	}
 	observations[0].InventoryRevision = strings.Repeat("e", 64)
 	heartbeat()
 	rejected := call(r, nil, "GET", "/agent/v1/commands", nil, headers)
@@ -216,20 +233,22 @@ func TestPublicationMigrationApprovalRecoveryMySQL(t *testing.T) {
 	}
 	observations[0].InventoryRevision = strings.Repeat("c", 64)
 	heartbeat()
-	req.ID = "reject-me"
-	check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 200)
-	check(t, call(r, approver, "POST", "/api/v1/publications/reject-me/reject", nil, nil), 200)
-	check(t, call(r, approver, "POST", "/api/v1/publications/reject-me/approve", nil, nil), 409)
-	req.ID = "expired-pending"
-	check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 200)
-	db.Model(&Publication{}).Where("id = ?", req.ID).Update("expires_at", time.Now().Add(-time.Minute))
-	if fresh.expireTasks(context.Background()) != nil {
-		t.Fatal("pending expiry")
-	}
-	var expired Publication
-	db.First(&expired, "id = ?", req.ID)
-	if expired.Status != "expired" {
-		t.Fatal("pending publication never expired")
+	if independent {
+		req.ID = "reject-me"
+		check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 200)
+		check(t, call(r, approver, "POST", "/api/v1/publications/reject-me/reject", nil, nil), 200)
+		check(t, call(r, approver, "POST", "/api/v1/publications/reject-me/approve", nil, nil), 409)
+		req.ID = "expired-pending"
+		check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 200)
+		db.Model(&Publication{}).Where("id = ?", req.ID).Update("expires_at", time.Now().Add(-time.Minute))
+		if fresh.expireTasks(context.Background()) != nil {
+			t.Fatal("pending expiry")
+		}
+		var expired Publication
+		db.First(&expired, "id = ?", req.ID)
+		if expired.Status != "expired" {
+			t.Fatal("pending publication never expired")
+		}
 	}
 	invalidFields := map[string]any{"request_id": "untrusted-payload", "host_id": "host", "release_id": m.ID, "selected": []string{"api"}, "image": image}
 	check(t, call(r, owner, "POST", "/api/v1/publications", invalidFields, nil), 400)

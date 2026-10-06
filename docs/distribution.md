@@ -1,5 +1,9 @@
 # Image distribution and schema v4
 
+Single confirmation is the default. Separate approval below applies when
+`ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`; existing requests retain their saved
+policy. See [approval modes and schema v6](approval.md).
+
 Schema v4 adds optional central GHCR distribution, persistent attempt history,
 reviewed cleanup and local image-variable persistence. Ordinary startup never
 migrates. Image preparation never restarts a container or writes its environment.

@@ -41,12 +41,14 @@ const PublicationUI = (() => {
    const card=node('article');card.append(node('h3',p.id+' · '+p.status),node('p','Host '+p.host_id+' · version '+p.release_id),node('p','Execution '+p.execution_id));
    let scope;try{scope=JSON.parse(p.scope);}catch{card.append(node('p','Invalid scope: actions disabled.'));return card;}
    for(const t of scope.unit.targets)card.append(node('p',t.service+': '+(t.selected?'replace image':'keep original image; restart and health-check')+' → '+t.image));
+   card.append(node('p',p.single_confirmation?'Single confirmation':'Independent approval'));
    if(p.code)card.append(node('p',p.code));
    if(p.status==='uncertain')card.append(node('p','Result uncertain: locks are retained. Inspect the Agent journal and actual containers before recovery.'));
    if(p.status==='pending'&&allowed('ops.approve')){
     card.append(button('Approve publication',async()=>{await api('publications/'+encodeURIComponent(p.id)+'/approve','POST');},p.requested_by===sessionID));
     card.append(button('Reject publication',async()=>{await api('publications/'+encodeURIComponent(p.id)+'/reject','POST');}));
    }
+   if(p.status==='pending'&&p.requested_by===sessionID&&allowed('ops.write'))card.append(button('Cancel request',()=>api('publications/'+encodeURIComponent(p.id)+'/cancel','POST')));
    return card;
   };
   if(s.request){try{const p=await api('publications/'+encodeURIComponent(s.request));if(!isCurrent())return;const currentRecord=node('section');currentRecord.append(showRecord(p));panel.append(currentRecord);
@@ -83,7 +85,7 @@ const PublicationUI = (() => {
   if(!s.release)return;
   function request(){if(!s.request){s.request='pub-'+crypto.randomUUID();update();}return {request_id:s.request,host_id:s.host,release_id:s.release,selected:s.selected};}
   panel.append(button('Sync selected images',async()=>{await api('publication-preparation','POST',request());notice('Image preparation requested. Containers are unchanged. Refresh for receipts.');},!allowed('ops.write')||!s.selected.length));
-  panel.append(button('Submit for independent approval',async()=>{const p=await api('publications','POST',request());s.request=p.id;update();notice('Publication saved. A different administrator must approve it.');},!allowed('ops.write')||!canSubmit(h.targets,s.selected)));
+  panel.append(button(ctx.independentApprovalEnabled===false?'Confirm execution':'Submit for independent approval',async()=>{const p=await api('publications','POST',request());s.request=p.id;update();notice(p.single_confirmation?'Execution submitted. Check the task status.':'Publication saved. A different administrator must approve it.');},!allowed('ops.write')||!canSubmit(h.targets,s.selected)));
   if(!s.selected.length)panel.append(node('p','No image changes selected; no publication will be created.'));
  }
  return {state,locationFor,selection,canSubmit,render,watch,dispose,get busy(){return busy;}};

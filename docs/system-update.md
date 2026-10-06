@@ -1,5 +1,9 @@
 # Management system updates
 
+Single confirmation is the default. Separate approval below applies when
+`ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`; existing requests retain their saved
+policy. See [approval modes and schema v6](approval.md).
+
 System update uses the existing publication API and an independently running host
 Agent. It replaces Docker images, not executable files in container writable
 layers. API/Web form one recovery unit; the Agent itself is maintained separately.
