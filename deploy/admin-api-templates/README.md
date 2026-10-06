@@ -1,5 +1,17 @@
 # Admin API 私有配置模板
 
+## 本组件专用安装脚本
+
+```sh
+curl -fL https://raw.githubusercontent.com/alpha2z/skygo-admin/main/install-admin-api.sh -o install-admin-api.sh
+sh install-admin-api.sh
+```
+
+默认下载到新目录 `./admin-api-templates`。支持 `--output` 指定新目录、`--ref` 固定完整提交SHA，
+以及 `--help`。无需下载其他组件脚本，也无需传入组件参数。脚本只下载本组件模板，
+不覆盖配置、不生成接入身份、不启动容器；其余配置步骤见下文。
+
+
 这些文件是**可公开下载的格式示例**，不含可投入使用的密码、令牌或签名身份。
 适用于纯 Skygo Admin API；保留现有文件，先在新目录下载比对，不覆盖现网 private/。
 本目录不是完整部署包，不会启动容器、建库、迁移数据库或修改现有配置。

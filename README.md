@@ -144,3 +144,11 @@ sh install-templates.sh --component ops-agent --output ./ops-agent
 
 Web、Agent目录分别包含compose.yaml、.env.example、start.sh、update.sh和参数说明。
 先填配置再启动；安装脚本不初始化服务或写入真实凭据。
+
+每个组件也有独立入口，无需指定组件参数：
+
+- [install-admin-api.sh](install-admin-api.sh)：下载 Admin API 模板。
+- [install-admin-web.sh](install-admin-web.sh)：下载 Admin Web 独立部署模板。
+- [install-ops-agent.sh](install-ops-agent.sh)：下载 Ops Agent 独立部署模板。
+
+下载后执行 `sh install-<组件>.sh`；使用 `--help` 查看输出目录与版本选项。

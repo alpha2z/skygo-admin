@@ -1,5 +1,17 @@
 # Admin Web 独立模板
 
+## 本组件专用安装脚本
+
+```sh
+curl -fL https://raw.githubusercontent.com/alpha2z/skygo-admin/main/install-admin-web.sh -o install-admin-web.sh
+sh install-admin-web.sh
+```
+
+默认下载到新目录 `./admin-web-templates`。支持 `--output` 指定新目录、`--ref` 固定完整提交SHA，
+以及 `--help`。无需下载其他组件脚本，也无需传入组件参数。脚本只下载本组件模板，
+不覆盖配置、不生成接入身份、不启动容器；其余配置步骤见下文。
+
+
 这是纯公开管理页面，不需要数据库密码、JWT、Agent令牌或签名私钥。
 下载脚本不创建实际 `.env`，不启动容器，不覆盖已有目录。
 
