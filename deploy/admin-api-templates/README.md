@@ -4,21 +4,40 @@
 适用于纯 Skygo Admin API；保留现有文件，先在新目录下载比对，不覆盖现网 private/。
 本目录不是完整部署包，不会启动容器、建库、迁移数据库或修改现有配置。
 
-## 下载整个模板目录（无需登录）
+## 使用安装脚本下载（无需登录）
+
+在准备存放模板的目录执行：
 
 ```sh
-mkdir -p /tmp/skygo-admin-template-download
-cd /tmp/skygo-admin-template-download
-curl -fL https://github.com/alpha2z/skygo-admin/archive/refs/heads/main.tar.gz -o source.tar.gz
-tar -xzf source.tar.gz skygo-admin-main/deploy/admin-api-templates
-cp -R skygo-admin-main/deploy/admin-api-templates ./admin-api-templates
-cd admin-api-templates
-ls -lh private/
+curl -fL https://raw.githubusercontent.com/alpha2z/skygo-admin/main/install-templates.sh -o install-templates.sh
+sh install-templates.sh --output ./admin-api-templates
 ```
 
-固定某次模板版本时，将 URL 中 `refs/heads/main` 改为已审核的提交 SHA，并使用归档内
-`skygo-admin-<SHA>/deploy/admin-api-templates` 路径。这里的 main 模板会随源码更新；部署时
-核对镜像版本兼容性。不要将下载目录直接覆盖线上目录。
+只需要 curl 和 tar。脚本下载同一份源码快照中的模板，不启动服务、不生成凭据，
+不创建实际 `.env`。目标目录已存在（含符号链接）时直接退出，绝不覆盖现网 private/。
+下载失败或模板缺失时不创建目标目录。父目录须提前存在；最终复制若因磁盘等问题失败，
+可能留下不完整的新目录，检查后改用新目录重试，不覆盖旧部署。
+
+```sh
+sh install-templates.sh --help
+# Pin templates to a reviewed full commit SHA:
+sh install-templates.sh --ref FULL_40_CHARACTER_COMMIT_SHA --output ./admin-api-templates-pinned
+```
+
+`--ref` 支持 main 或完整40位小写提交SHA。示例中的 FULL_40_CHARACTER_COMMIT_SHA
+必须替换为实际SHA。main 模板会随源码更新，部署时核对镜像兼容性。
+脚本名称采用常见的连字符命名，选项使用 --help/--output/--ref，不提供覆盖旧文件的选项。
+
+### 手动下载备选
+
+在新的临时目录执行：
+
+```sh
+curl -fL https://github.com/alpha2z/skygo-admin/archive/refs/heads/main.tar.gz -o source.tar.gz
+tar -xzf source.tar.gz skygo-admin-main/deploy/admin-api-templates
+```
+
+模板位于 `skygo-admin-main/deploy/admin-api-templates/`，不要覆盖现有部署目录。
 
 ## 文件逐项说明
 
