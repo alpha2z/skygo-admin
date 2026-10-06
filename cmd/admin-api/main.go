@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/alpha2z/skygo-admin/admin"
 	"github.com/alpha2z/skygo-admin/internal/app"
 	skyapp "github.com/scott4game/skygo/app"
 	"log"
@@ -11,7 +12,19 @@ import (
 
 func main() {
 	migrate := flag.Bool("migrate", false, "explicitly initialize or migrate the management schema")
+	changePassword := flag.String("change-password", "", "change an existing administrator password and exit")
+	passwordFile := flag.String("password-file", "", "read the new password from a private file instead of the terminal")
 	flag.Parse()
+	if flag.NArg() != 0 || (*migrate && *changePassword != "") || (*passwordFile != "" && *changePassword == "") {
+		log.Fatal("invalid flag combination; use -help")
+	}
+	if *changePassword != "" {
+		if err := admin.RunPasswordChange(*changePassword, *passwordFile, nil); err != nil {
+			log.Fatal(err)
+		}
+		log.Print("administrator password changed; existing sessions revoked")
+		return
+	}
 	cfg, err := app.LoadConfig()
 	if err != nil {
 		log.Fatal(err)

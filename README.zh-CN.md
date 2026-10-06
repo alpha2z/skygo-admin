@@ -92,3 +92,5 @@ API/Web 自升级使用[选择式发布与 schema v3](docs/publications.md)，�
 Management self-update / 管理端自更新：[System update](docs/system-update.md).
 
 Composition API / 私有扩展接入：[Extension SDK](docs/extensions.md).
+
+管理员命令行改密：`admin-api -change-password admin`，终端隐藏输入并确认两次；详见 [改密说明](docs/password-cli.md)。

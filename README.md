@@ -155,3 +155,6 @@ Web、Agent目录分别包含compose.yaml、.env.example、start.sh、update.sh�
 - [install-ops-agent.sh](install-ops-agent.sh)：下载 Ops Agent 独立部署模板。
 
 下载后执行 `sh install-<组件>.sh`；使用 `--help` 查看输出目录与版本选项。
+
+To change or recover an administrator password locally, use
+`admin-api -change-password admin`. See [password CLI](docs/password-cli.md).

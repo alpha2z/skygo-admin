@@ -10,6 +10,7 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/scott4game/skygo v0.2.0
 	golang.org/x/crypto v0.40.0
+	golang.org/x/term v0.33.0
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.1
 )

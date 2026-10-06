@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"github.com/alpha2z/skygo-admin/internal/confirmation"
 	"github.com/gin-gonic/gin"
@@ -183,10 +184,6 @@ func (s *Server) login(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "invalid credentials"})
 		return
 	}
-	if err := s.db.Model(&user).Updates(map[string]any{"failed_attempts": 0, "locked_until_ms": 0, "updated_at_ms": time.Now().UnixMilli()}).Error; err != nil {
-		c.JSON(503, gin.H{"error": "Login service is temporarily unavailable"})
-		return
-	}
 	expires := time.Now().Add(2 * time.Hour)
 	sid, err := randomToken(24)
 	if err != nil {
@@ -200,8 +197,12 @@ func (s *Server) login(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "token"})
 		return
 	}
-	if s.db.Create(&Session{ID: sid, AdminID: user.ID, CSRF: csrf, ExpiresAt: expires}).Error != nil {
-		c.Status(503)
+	if err := s.storeLoginSession(user, Session{ID: sid, AdminID: user.ID, CSRF: csrf, ExpiresAt: expires}); err != nil {
+		if errors.Is(err, errStaleLogin) {
+			c.JSON(401, gin.H{"error": "invalid credentials"})
+		} else {
+			c.Status(503)
+		}
 		return
 	}
 	s.setCookies(c, signed, csrf)
