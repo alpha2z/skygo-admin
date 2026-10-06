@@ -1,0 +1,149 @@
+name: Publish latest images
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: public-latest
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      started: ${{ steps.identity.outputs.started }}
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - id: identity
+        run: |
+          started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "started=$started" >> "$GITHUB_OUTPUT"
+          echo "version=$(TZ=Asia/Tokyo date -d "$started" +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+      - run: make scan test release
+      - run: python3 scripts/integration.py
+      - run: GOWORK=off go vet ./...
+      - name: Secret scan
+        run: |
+          GOBIN="$RUNNER_TEMP/security-tools" go install github.com/zricethezav/gitleaks/v8@v8.24.3
+          "$RUNNER_TEMP/security-tools/gitleaks" dir . --redact --no-banner
+          "$RUNNER_TEMP/security-tools/gitleaks" git . --redact --no-banner
+  build:
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build versioned images
+        env:
+          ARCH: ${{ matrix.arch }}
+          BUILD_STARTED: ${{ needs.verify.outputs.started }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          namespace=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          mkdir -p metadata
+          for component in admin-api admin-web ops-agent; do
+            case "$component" in admin-api) recipe=api;; admin-web) recipe=web;; ops-agent) recipe=agent;; esac
+            docker buildx build --platform "linux/$ARCH" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --label "org.opencontainers.image.created=$BUILD_STARTED" \
+              --label "io.skygo-admin.build.version=$VERSION-$ARCH" \
+              --label "io.skygo-admin.build.timezone=Asia/Tokyo" \
+              -f "deploy/Dockerfile.$recipe" \
+              -t "ghcr.io/$namespace/$component:$VERSION-$ARCH" \
+              -t "ghcr.io/$namespace/$component:$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ARCH" \
+              --push --metadata-file "metadata/metadata-$component.json" .
+          done
+          python3 scripts/build-manifest.py --metadata-dir metadata --component all \
+            --platform "linux/$ARCH" --workflow latest.yml --out metadata/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: latest-metadata-${{ matrix.arch }}
+          path: metadata/
+          if-no-files-found: error
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: latest-metadata-*
+          path: metadata
+      - name: Combine and sign immutable image identities
+        env:
+          BUILD_SIGNING_KEY: ${{ secrets.BUILD_SIGNING_KEY }}
+        run: |
+          test -n "$BUILD_SIGNING_KEY" || { echo 'BUILD_SIGNING_KEY is required; latest was not changed.'; exit 1; }
+          python3 scripts/combine-image-manifests.py \
+            metadata/latest-metadata-amd64/manifest.json metadata/latest-metadata-arm64/manifest.json \
+            --out "$RUNNER_TEMP/manifest.json"
+          umask 077
+          printf '%s' "$BUILD_SIGNING_KEY" > "$RUNNER_TEMP/build-signing-key"
+          GOWORK=off go run ./cmd/sign-images -manifest "$RUNNER_TEMP/manifest.json" \
+            -key-file "$RUNNER_TEMP/build-signing-key" -out signed-images.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skygo-admin-signed-images-${{ github.run_attempt }}
+          path: signed-images.json
+          if-no-files-found: error
+      - name: Publish version tags and latest
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          namespace=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          for component in admin-api admin-web ops-agent; do
+            amd64=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "metadata/latest-metadata-amd64/metadata-$component.json")
+            arm64=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "metadata/latest-metadata-arm64/metadata-$component.json")
+            docker buildx imagetools create \
+              -t "ghcr.io/$namespace/$component:$VERSION" \
+              "ghcr.io/$namespace/$component@$amd64" "ghcr.io/$namespace/$component@$arm64"
+          done
+          # A delayed/retried older commit must never replace the current channel.
+          main_sha=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$main_sha" != "$GITHUB_SHA" ]; then
+            echo 'A newer main commit exists; version tags published, latest left unchanged.'
+            exit 0
+          fi
+          for component in admin-api admin-web ops-agent; do
+            docker buildx imagetools create -t "ghcr.io/$namespace/$component:latest" \
+              "ghcr.io/$namespace/$component:$VERSION"
+          done
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/build-signing-key"

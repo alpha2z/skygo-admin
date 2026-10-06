@@ -100,3 +100,33 @@ Licensed under Apache-2.0 with retained third-party notices.
 Management self-update / 管理端自更新：[System update](docs/system-update.md).
 
 Composition API / 私有扩展接入：[Extension SDK](docs/extensions.md).
+
+## Public `latest` images
+
+`latest.yml` publishes `ghcr.io/alpha2z/skygo-admin/admin-api:latest`,
+`ghcr.io/alpha2z/skygo-admin/admin-web:latest` and
+`ghcr.io/alpha2z/skygo-admin/ops-agent:latest` after a push to `main` passes its
+checks, or a manual run on `main`. The repository needs its existing
+`BUILD_SIGNING_KEY` Actions secret. Consumers of public packages do not need
+`docker login`. The workflow must first be pushed and finish successfully before
+these tags are available.
+
+Each `latest` is a multi-platform index for Linux amd64 and arm64. Both builds
+must succeed and their combined immutable manifest must be signed and uploaded
+before promotion. Timestamp and commit tags remain available for rollback. A delayed build of an
+older main commit publishes its version tags without moving `latest` backward.
+Updating three registry tags is not atomic: if promotion fails partway through,
+wait for a successful run before updating the stack.
+
+Keep the three `*_IMAGE` values in your existing Compose `.env` set to the names
+above. Run `docker compose pull admin-api admin-web ops-agent`, then
+`docker compose up -d --no-deps admin-api admin-web ops-agent` with your deployment's
+usual Compose file/profile options. Pulling alone does not replace containers;
+`restart` does not load a newer image. Back up state first and perform any required
+schema migration explicitly before starting a schema-changing version.
+
+The signed publication UI continues to authorize immutable digests. `latest` is
+an operator-facing download alias, not a replacement for signature, approval or
+rollback identity checks. A publication with `sync_image_env` enabled persists
+its approved digest; manual `latest` deployments and signed UI deployments use
+different update procedures. Do not run both procedures concurrently.
