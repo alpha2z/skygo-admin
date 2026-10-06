@@ -311,6 +311,21 @@ func (s *Server) createTask(c *gin.Context) {
 			id = req.RequestID
 		}
 		cmd := control.Command{Version: 1, ID: id, HostID: def.HostID, Service: def.ID, Action: req.Action, Image: req.Image, ExpiresAt: time.Now().UTC().Add(time.Hour)}
+		var pluginHost Host
+		if tx.First(&pluginHost, "id = ?", def.HostID).Error == nil {
+			var inventory []control.Observation
+			if json.Unmarshal([]byte(pluginHost.Observations), &inventory) == nil {
+				for _, o := range inventory {
+					if o.Service == def.ID {
+						if o.ObservationOnly && req.Action != "health" {
+							return nil, errConflict
+						}
+						cmd.PluginRevision = o.PluginRevision
+						break
+					}
+				}
+			}
+		}
 		if req.Action == "extension" {
 			cmd.Extension = req.Extension
 			cmd.Payload = req.Payload

@@ -21,3 +21,6 @@ const Version = core.Version
 var Sign = core.Sign
 var Verify = core.Verify
 var Digest = core.Digest
+
+func ValidIdentifier(value string) bool { return core.Identifier.MatchString(value) }
+func ImageIdentity(value string) bool   { return core.ImageIdentity(value) }

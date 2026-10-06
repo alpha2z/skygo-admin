@@ -21,14 +21,15 @@ import (
 // Extension is statically installed by a trusted composition executable. Its
 // routes are always below /api/v1/extensions/<ID>; core routes cannot be replaced.
 type Extension struct {
-	PublicRoutes []ExtensionRoute
-	ID           string
-	Policies     []RolePolicy
-	Routes       []ExtensionRoute
-	Pages        []ExtensionPage
-	Assets       fs.FS
-	Start        func(context.Context) error
-	Stop         func(context.Context) error
+	runtimePlugin bool
+	PublicRoutes  []ExtensionRoute
+	ID            string
+	Policies      []RolePolicy
+	Routes        []ExtensionRoute
+	Pages         []ExtensionPage
+	Assets        fs.FS
+	Start         func(context.Context) error
+	Stop          func(context.Context) error
 }
 type ExtensionRoute struct {
 	// Draft accepts streaming input but may not activate a release or execute a service.
@@ -40,6 +41,7 @@ type ExtensionRoute struct {
 	Handler    gin.HandlerFunc
 }
 type ExtensionPage struct {
+	Group      string   `json:"group,omitempty"`
 	Replaces   []string `json:"replaces,omitempty"`
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`
@@ -244,7 +246,11 @@ func (s *Server) mountExtensions(r *gin.Engine, a *gin.RouterGroup) {
 		for _, route := range x.PublicRoutes {
 			r.Handle(route.Method, route.Path, route.Handler)
 		}
-		group := a.Group("/extensions/" + x.ID)
+		prefix := "/extensions/"
+		if x.runtimePlugin {
+			prefix = "/plugins/"
+		}
+		group := a.Group(prefix + x.ID)
 		for _, route := range x.Routes {
 			h := route.Handler
 			if route.Draft {
@@ -272,6 +278,7 @@ func (s *Server) mountExtensions(r *gin.Engine, a *gin.RouterGroup) {
 // AgentAction is registered only by the composition binary. Execution uses the
 // task journal and the operation's persisted approval policy.
 type AgentAction struct {
+	PluginRevision     string
 	Permission         string
 	ApprovalPermission string
 	Validate           func(json.RawMessage) error
@@ -282,7 +289,7 @@ func (s *Server) checkExtensionTask(tx *gorm.DB, cmd control.Command, requester,
 		return nil
 	}
 	x, ok := s.cfg.AgentActions[cmd.Extension]
-	if !ok || x.Validate(cmd.Payload) != nil {
+	if !ok || x.PluginRevision != cmd.PluginRevision || x.Validate(cmd.Payload) != nil {
 		return errConflict
 	}
 	for _, identity := range []struct {

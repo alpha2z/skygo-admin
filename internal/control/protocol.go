@@ -20,6 +20,8 @@ var Image = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[a-f0-9]{64
 // Paths, environment values and commands are deliberately absent. They belong
 // in the operator-owned agent inventory and cannot be supplied over the API.
 type Service struct {
+	PluginID     string   `json:"plugin_id,omitempty"`
+	DisplayName  string   `json:"display_name,omitempty"`
 	ID           string   `json:"id"`
 	HostID       string   `json:"host_id"`
 	Image        string   `json:"image"`
@@ -29,6 +31,7 @@ type Service struct {
 	ControlPlane bool     `json:"control_plane"`
 }
 type Command struct {
+	PluginRevision        string          `json:"plugin_revision,omitempty"`
 	WorkflowScopeRevision string          `json:"workflow_scope_revision,omitempty"`
 	WorkflowImage         string          `json:"workflow_image,omitempty"`
 	WorkflowID            string          `json:"workflow_id,omitempty"`
@@ -70,6 +73,8 @@ type Result struct {
 	ConfigHash string          `json:"config_hash,omitempty"`
 }
 type Observation struct {
+	ObservationOnly   bool                       `json:"observation_only,omitempty"`
+	PluginRevision    string                     `json:"plugin_revision,omitempty"`
 	ScopeRevision     string                     `json:"scope_revision,omitempty"`
 	ConfiguredImage   string                     `json:"configured_image,omitempty"`
 	Extensions        map[string]json.RawMessage `json:"extensions,omitempty"`
@@ -192,6 +197,9 @@ func Verify(e Envelope, k ed25519.PublicKey, host string) (Command, error) {
 func ValidateServices(services []Service) error {
 	all := map[string]Service{}
 	for _, s := range services {
+		if s.PluginID != "" && !Identifier.MatchString(s.PluginID) || len(s.DisplayName) > 160 {
+			return errors.New("invalid service display metadata")
+		}
 		if s.ControlKind != "" && (!s.ControlPlane || (s.ControlKind != "admin-api" && s.ControlKind != "admin-web" && s.ControlKind != "ops-agent") || (s.Platform != "linux/amd64" && s.Platform != "linux/arm64")) {
 			return errors.New("invalid control service metadata")
 		}

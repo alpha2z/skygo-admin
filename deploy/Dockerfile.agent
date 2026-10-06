@@ -7,6 +7,7 @@ COPY internal ./internal
 COPY admin ./admin
 COPY agent ./agent
 COPY control ./control
+COPY plugin ./plugin
 COPY web ./web
 COPY admin-web ./admin-web
 ARG TARGETOS

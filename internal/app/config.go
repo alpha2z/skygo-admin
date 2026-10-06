@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	PluginInventories                                  map[string][]string
 	IndependentApprovalEnabled                         bool
 	Workflows                                          map[string]WorkflowProvider
 	TaskPolicy                                         func(context.Context, *gorm.DB, control.Command) error
@@ -102,5 +103,8 @@ func LoadConfig() (Config, error) {
 	}
 	c.DistributionConfig = os.Getenv("ADMIN_DISTRIBUTION_CONFIG")
 	c.GitHubConfig = os.Getenv("ADMIN_GITHUB_CONFIG")
+	if err := loadPluginActions(&c); err != nil {
+		return c, err
+	}
 	return c, nil
 }

@@ -25,12 +25,13 @@ type WorkflowProvider struct {
 	Validate           func(context.Context, *gorm.DB, WorkflowPlan) error
 }
 type WorkflowTarget struct {
-	Service       string `json:"service"`
-	Host          string `json:"host"`
-	Definition    string `json:"definition"`
-	ScopeRevision string `json:"scope_revision"`
-	Image         string `json:"image"`
-	ImageID       string `json:"image_id"`
+	PluginRevision string `json:"plugin_revision,omitempty"`
+	Service        string `json:"service"`
+	Host           string `json:"host"`
+	Definition     string `json:"definition"`
+	ScopeRevision  string `json:"scope_revision"`
+	Image          string `json:"image"`
+	ImageID        string `json:"image_id"`
 }
 type WorkflowStep struct {
 	ImageIDAlternatives []string        `json:"image_id_alternatives,omitempty"`
@@ -410,6 +411,16 @@ func (s *Server) checkWorkflowScope(tx *gorm.DB, w Workflow, p WorkflowPlan, ini
 			return err
 		}
 		want := expected[t.Service]
+		if o.PluginRevision != t.PluginRevision {
+			return errors.New("workflow plugin revision changed")
+		}
+		if o.ObservationOnly {
+			for _, step := range append(append([]WorkflowStep{}, p.Steps...), p.Rollback...) {
+				if step.Command.Service == t.Service && step.Command.Action != "health" {
+					return errors.New("workflow service is observation-only")
+				}
+			}
+		}
 		if o.ScopeRevision != t.ScopeRevision || o.ConfiguredImage != want.Image || o.ImageID != want.ImageID {
 			return errors.New("execution scope changed")
 		}
@@ -567,6 +578,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 				return save()
 			}
 			command := step.Command
+			command.PluginRevision = target.PluginRevision
 			command.Version = 1
 			command.ID = workflowStepID(w, w.Position)
 			command.WorkflowID = w.ID

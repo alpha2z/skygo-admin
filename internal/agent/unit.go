@@ -46,7 +46,7 @@ func validateLocalUnit(c Config) error {
 	}
 	for _, id := range []string{u.API, u.Web} {
 		s, ok := members[id]
-		if !ok || s.HealthURL == "" {
+		if !ok || s.HealthURL == "" || s.ObservationOnly {
 			return errors.New("unit members require local health checks")
 		}
 	}

@@ -319,6 +319,7 @@ func (s *Server) Router() *gin.Engine {
 	agents.GET("/commands", s.commands)
 	agents.POST("/results", s.result)
 	s.mountExtensions(r, a)
+	s.mountPluginInventories(a)
 	if s.cfg.WebFS != nil {
 		for _, file := range []string{"index.html", "locale.js", "distribution.js", "publications.js", "releases.js", "app.js", "styles.css"} {
 			name := file

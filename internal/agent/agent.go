@@ -23,22 +23,25 @@ import (
 )
 
 type LocalService struct {
-	Extensions     []string `json:"extensions,omitempty"`
-	SyncImageEnv   bool     `json:"sync_image_env,omitempty"`
-	CacheDir       string   `json:"-"`
-	ID             string   `json:"id"`
-	ComposeFile    string   `json:"compose_file"`
-	EnvFile        string   `json:"env_file"`
-	Project        string   `json:"project"`
-	ComposeService string   `json:"compose_service"`
-	ImageVariable  string   `json:"image_variable"`
-	AllowedImages  []string `json:"allowed_images"`
-	HealthURL      string   `json:"health_url"`
-	ConfigPath     string   `json:"config_path"`
-	SkygoRegistry  bool     `json:"skygo_registry"`
-	AllowLogs      bool     `json:"allow_logs"`
+	ObservationOnly bool     `json:"observation_only,omitempty"`
+	PluginRevision  string   `json:"plugin_revision,omitempty"`
+	Extensions      []string `json:"extensions,omitempty"`
+	SyncImageEnv    bool     `json:"sync_image_env,omitempty"`
+	CacheDir        string   `json:"-"`
+	ID              string   `json:"id"`
+	ComposeFile     string   `json:"compose_file"`
+	EnvFile         string   `json:"env_file"`
+	Project         string   `json:"project"`
+	ComposeService  string   `json:"compose_service"`
+	ImageVariable   string   `json:"image_variable"`
+	AllowedImages   []string `json:"allowed_images"`
+	HealthURL       string   `json:"health_url"`
+	ConfigPath      string   `json:"config_path"`
+	SkygoRegistry   bool     `json:"skygo_registry"`
+	AllowLogs       bool     `json:"allow_logs"`
 }
 type Config struct {
+	Plugins           []PluginConfig                                             `json:"plugins,omitempty"`
 	Guard             func(context.Context, LocalService, control.Command) error `json:"-"`
 	Extensions        map[string]ExtensionAction                                 `json:"-"`
 	ControlUnit       *LocalUnit                                                 `json:"control_unit,omitempty"`
@@ -73,6 +76,9 @@ type Agent struct {
 }
 
 func New(c Config, d Driver) (*Agent, error) {
+	if err := installPlugins(&c, d); err != nil {
+		return nil, err
+	}
 	u, err := url.Parse(c.APIURL)
 	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimRight(u.Path, "/") != "" {
 		return nil, errors.New("invalid API origin")
@@ -210,6 +216,11 @@ func (a *Agent) run(ctx context.Context) {
 					if _, ok := a.driver.(Docker); ok {
 						o.Capabilities = append(o.Capabilities, "image.archive.v1", "image.cleanup.v1")
 					}
+					o.ObservationOnly = s.ObservationOnly
+					if s.ObservationOnly {
+						o.Capabilities = append(o.Capabilities, "observe.only.v1")
+					}
+					o.PluginRevision = s.PluginRevision
 					o.SyncImageEnv = s.SyncImageEnv
 					if s.SyncImageEnv {
 						o.Capabilities = append(o.Capabilities, "image.env.v1")
@@ -292,6 +303,19 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 		return result
 	}
 
+	if service.ObservationOnly && cmd.Action != "health" {
+		path := filepath.Join(a.cfg.StateDir, cmd.ID+".json")
+		if raw, err := os.ReadFile(path); err == nil {
+			var old receipt
+			if json.Unmarshal(raw, &old) != nil || old.Digest != control.Digest(e.Payload) {
+				return control.Result{ID: cmd.ID, Status: "uncertain", Code: "RECEIPT_CONFLICT"}
+			}
+			return old.Result
+		} else if !os.IsNotExist(err) {
+			return control.Result{ID: cmd.ID, Status: "uncertain", Code: "JOURNAL_UNAVAILABLE"}
+		}
+		return control.Result{ID: cmd.ID, Status: "failed", Code: "OBSERVATION_ONLY"}
+	}
 	if (cmd.Action == "deploy" || cmd.Action == "rollback") && (service.SyncImageEnv || cmd.SyncImageEnv) {
 		return a.handleEnvDeployment(ctx, e, cmd, service)
 	}
@@ -306,6 +330,9 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 		}
 		if old.Result.Status != "uncertain" {
 			return old.Result
+		}
+		if cmd.PluginRevision != service.PluginRevision {
+			return control.Result{ID: cmd.ID, Status: "uncertain", Code: "PLUGIN_REVISION_CHANGED"}
 		}
 		if cmd.Action == "prepare-image" && time.Now().Before(cmd.ExpiresAt) { // Cache population is repeatable; never repeat a service mutation.
 			work, cancel := context.WithTimeout(ctx, 30*time.Minute)
@@ -329,6 +356,10 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 	}
 	if !os.IsNotExist(err) {
 		result.Code = "JOURNAL_UNAVAILABLE"
+		return result
+	}
+	if cmd.PluginRevision != service.PluginRevision {
+		result.Code = "PLUGIN_REVISION_CHANGED"
 		return result
 	}
 	if !time.Now().Before(cmd.ExpiresAt) {

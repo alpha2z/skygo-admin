@@ -61,7 +61,13 @@ func (s *Server) trustedRelease(tx *gorm.DB, id string) (release.Manifest, error
 	if err != nil || manifest.ID != id {
 		return release.Manifest{}, releaseFailure("BUILD_SIGNATURE_UNTRUSTED")
 	}
-	if len(s.cfg.Extensions) > 0 && (s.cfg.ReleaseRepository == "" || s.cfg.ReleaseWorkflow == "") {
+	compiledComposition := false
+	for _, extension := range s.cfg.Extensions {
+		compiledComposition = compiledComposition || !extension.runtimePlugin
+	}
+	// Runtime sidecars do not change the public API/Web image composition.
+	// Compiled extensions still require their private composition release source.
+	if compiledComposition && (s.cfg.ReleaseRepository == "" || s.cfg.ReleaseWorkflow == "") {
 		return release.Manifest{}, publicationError("EXTENSION_RELEASE_POLICY_REQUIRED", "This composition must configure its own release source before updating.")
 	}
 	if (s.cfg.ReleaseRepository != "" && manifest.Build.Repository != s.cfg.ReleaseRepository) || (s.cfg.ReleaseWorkflow != "" && manifest.Build.Workflow != s.cfg.ReleaseWorkflow) {
