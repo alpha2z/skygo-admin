@@ -1,0 +1,8 @@
+{
+  "repository": "alpha2z/skygo-admin",
+  "workflow": "build.yml",
+  "allowed_refs": ["main"],
+  "token_file": "/run/private/github-read-token",
+  "publish_images": false,
+  "auto_register": false
+}

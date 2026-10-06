@@ -1,0 +1,1 @@
+skygo_admin:REPLACE_WITH_DATABASE_PASSWORD@tcp(db.example.net:3306)/skygo_admin?charset=utf8mb4&parseTime=true&loc=UTC

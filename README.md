@@ -130,3 +130,6 @@ an operator-facing download alias, not a replacement for signature, approval or
 rollback identity checks. A publication with `sync_image_env` enabled persists
 its approved digest; manual `latest` deployments and signed UI deployments use
 different update procedures. Do not run both procedures concurrently.
+
+Admin API 私有文件格式、参数示例、匿名下载命令和不覆盖旧文件的密钥生成器：
+[配置模板下载与说明](deploy/admin-api-templates/README.md)。
