@@ -160,5 +160,17 @@ func validatePluginWorkflow(p PluginProviderConfig, allowed map[string]bool, pla
 			}
 		}
 	}
+	for _, step := range plan.Steps {
+		if step.Command.Action != "deploy" {
+			continue
+		}
+		found := false
+		for _, receipt := range plan.Preparations {
+			found = found || (receipt.Service == step.Command.Service && receipt.Host == step.Command.HostID && receipt.Image == step.Command.Image && receipt.ImageID == step.ImageID && receipt.PluginRevision == p.Revision)
+		}
+		if !found {
+			return errors.New("plugin deployment requires a bound image preparation receipt")
+		}
+	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alpha2z/skygo-admin/internal/control"
+	"github.com/alpha2z/skygo-admin/plugin"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -41,15 +42,16 @@ type WorkflowStep struct {
 	When                string          `json:"when,omitempty"` // running or stopped; conditions cannot add scope.
 }
 type WorkflowPlan struct {
-	Group     string           `json:"group"`
-	Kind      string           `json:"kind"`
-	Title     string           `json:"title"`
-	Reason    string           `json:"reason"`
-	CacheOnly bool             `json:"cache_only"`
-	Targets   []WorkflowTarget `json:"targets"`
-	Steps     []WorkflowStep   `json:"steps"`
-	Rollback  []WorkflowStep   `json:"rollback,omitempty"`
-	Context   json.RawMessage  `json:"context,omitempty"`
+	Preparations []plugin.PreparedImage `json:"preparations,omitempty"`
+	Group        string                 `json:"group"`
+	Kind         string                 `json:"kind"`
+	Title        string                 `json:"title"`
+	Reason       string                 `json:"reason"`
+	CacheOnly    bool                   `json:"cache_only"`
+	Targets      []WorkflowTarget       `json:"targets"`
+	Steps        []WorkflowStep         `json:"steps"`
+	Rollback     []WorkflowStep         `json:"rollback,omitempty"`
+	Context      json.RawMessage        `json:"context,omitempty"`
 }
 type Workflow struct {
 	SingleConfirmation bool      `gorm:"not null;default:false" json:"single_confirmation"`
@@ -371,6 +373,9 @@ func workflowObserved(tx *gorm.DB, t WorkflowTarget) (control.Observation, error
 	return control.Observation{}, errors.New("service observation missing")
 }
 func (s *Server) checkWorkflowScope(tx *gorm.DB, w Workflow, p WorkflowPlan, initial bool) error {
+	if err := checkWorkflowPreparations(tx, w, p, initial); err != nil {
+		return err
+	}
 	expected := map[string]WorkflowTarget{}
 	for _, t := range p.Targets {
 		expected[t.Service] = t
