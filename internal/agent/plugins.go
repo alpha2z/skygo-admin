@@ -12,8 +12,9 @@ import (
 type PluginConfig struct {
 	plugin.Endpoint
 	plugin.Trust
-	Actions  []string `json:"actions"`
-	Services []string `json:"services"`
+	Actions        []string            `json:"actions"`
+	Services       []string            `json:"services"`
+	ServiceActions map[string][]string `json:"service_actions,omitempty"`
 }
 
 func installPlugins(cfg *Config, drivers ...Driver) error {
@@ -41,6 +42,10 @@ func installPlugins(cfg *Config, drivers ...Driver) error {
 			return errors.New("invalid plugin inventory")
 		}
 		if err := p.Trust.Verify(p.Endpoint, p.Actions); err != nil {
+			return err
+		}
+		scope, err := pluginActionScope(p)
+		if err != nil {
 			return err
 		}
 		seen[p.ID] = true
@@ -71,7 +76,7 @@ func installPlugins(cfg *Config, drivers ...Driver) error {
 			action := name
 			authorized := map[string]bool{}
 			for _, id := range p.Services {
-				authorized[id] = true
+				authorized[id] = scope[id][name]
 			}
 			call := func(ctx context.Context, s LocalService, c control.Command, op string) control.Result {
 				if !authorized[s.ID] {
@@ -126,7 +131,7 @@ func installPlugins(cfg *Config, drivers ...Driver) error {
 						for _, v := range s.Extensions {
 							found = found || v == name
 						}
-						if !found {
+						if found != scope[id][name] {
 							return errors.New("plugin action not explicitly authorized for service")
 						}
 					}
@@ -153,3 +158,34 @@ func installPlugins(cfg *Config, drivers ...Driver) error {
 	return nil
 }
 func mustJSON(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+
+// pluginActionScope narrows each service's actions without changing legacy defaults.
+func pluginActionScope(p PluginConfig) (map[string]map[string]bool, error) {
+	actions := map[string]bool{}
+	for _, name := range p.Actions {
+		actions[name] = true
+	}
+	scope := map[string]map[string]bool{}
+	for _, id := range p.Services {
+		names := p.Actions
+		if p.ServiceActions != nil {
+			names = p.ServiceActions[id]
+		}
+		if len(names) == 0 || scope[id] != nil {
+			return nil, errors.New("invalid plugin service action scope")
+		}
+		scope[id] = map[string]bool{}
+		for _, name := range names {
+			if !actions[name] || scope[id][name] {
+				return nil, errors.New("invalid plugin scoped action")
+			}
+			scope[id][name] = true
+		}
+	}
+	for id := range p.ServiceActions {
+		if scope[id] == nil {
+			return nil, errors.New("unknown plugin scoped service")
+		}
+	}
+	return scope, nil
+}

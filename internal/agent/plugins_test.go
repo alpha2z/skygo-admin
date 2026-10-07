@@ -16,7 +16,7 @@ import (
 
 func pluginTestConfig(t *testing.T) Config {
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
-	raw, _ := json.Marshal(plugin.Manifest{Protocol: 1, CoreProtocol: 1, ID: "sample", Version: "1.0.0", Capabilities: []string{"sample-action"}})
+	raw, _ := json.Marshal(plugin.Manifest{Protocol: 1, CoreProtocol: 1, ID: "sample", Version: "1.0.0", Capabilities: []string{"sample-action", "secondary-action"}})
 	b, _ := json.Marshal(plugin.SignedManifest{Payload: raw, Signature: ed25519.Sign(key, raw)})
 	_, rev, err := plugin.VerifyManifest(b, pub)
 	if err != nil {
@@ -92,5 +92,45 @@ func TestPluginRevisionChangeDoesNotReplayOrReconcileWithNewPlugin(t *testing.T)
 	}
 	if r := a.Handle(context.Background(), signed); r.Status != "uncertain" || r.Code != "PLUGIN_REVISION_CHANGED" || d.calls != 1 {
 		t.Fatal("interrupted operation migrated to changed plugin")
+	}
+}
+
+func TestPluginPerServiceActionScope(t *testing.T) {
+	c := pluginTestConfig(t)
+	c.Plugins[0].Actions = []string{"sample-action", "secondary-action"}
+	c.Plugins[0].Services = []string{"one", "two"}
+	c.Plugins[0].ServiceActions = map[string][]string{"one": {"sample-action", "secondary-action"}, "two": {"secondary-action"}}
+	c.Services[0].Extensions = []string{"sample-action", "secondary-action"}
+	c.Services[1].Extensions = []string{"secondary-action"}
+	if err := installPlugins(&c); err != nil {
+		t.Fatal(err)
+	}
+	action := c.Extensions["sample-action"]
+	if r := action.Execute(context.Background(), c.Services[1], control.Command{ID: "job"}); r.Code != "PLUGIN_SERVICE_NOT_AUTHORIZED" {
+		t.Fatal("scoped action escaped service boundary")
+	}
+	if r := action.Reconcile(context.Background(), c.Services[1], control.Command{ID: "job"}); r.Code != "PLUGIN_SERVICE_NOT_AUTHORIZED" {
+		t.Fatal("reconciliation escaped service boundary")
+	}
+	if _, err := action.Observe(context.Background(), c.Services[1]); err == nil {
+		t.Fatal("observation escaped service boundary")
+	}
+}
+func TestPluginInvalidPerServiceActionScope(t *testing.T) {
+	for _, scope := range []map[string][]string{
+		{"one": {"unknown"}}, {"one": {"sample-action"}, "unknown": {"sample-action"}},
+		{}, {"one": {"sample-action", "sample-action"}},
+	} {
+		c := pluginTestConfig(t)
+		c.Plugins[0].ServiceActions = scope
+		if installPlugins(&c) == nil {
+			t.Fatal("invalid action scope accepted")
+		}
+	}
+	c := pluginTestConfig(t)
+	c.Plugins[0].Actions = []string{"sample-action", "secondary-action"}
+	c.Plugins[0].ServiceActions = map[string][]string{"one": {"secondary-action"}}
+	if installPlugins(&c) == nil {
+		t.Fatal("inventory and scoped actions disagree")
 	}
 }
