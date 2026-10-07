@@ -224,7 +224,11 @@ func (s *Server) tasks(c *gin.Context) {
 			}
 		}
 	}
-	c.JSON(200, rows)
+	views := make([]taskResponse, 0, len(rows))
+	for _, row := range rows {
+		views = append(views, s.taskResponse(c, row))
+	}
+	c.JSON(200, views)
 }
 func (s *Server) createTask(c *gin.Context) {
 	var req struct {
@@ -925,5 +929,35 @@ func (s *Server) taskDetail(c *gin.Context) {
 			row.Result = "{}"
 		}
 	}
-	c.JSON(200, row)
+	c.JSON(200, s.taskResponse(c, row))
+}
+
+// taskResponse exposes only extension intent to principals permitted to execute or approve it.
+// Signed envelopes and configuration payloads remain private persistence fields.
+type taskResponse struct {
+	Task
+	Extension        string          `json:"extension,omitempty"`
+	ExtensionPayload json.RawMessage `json:"extension_payload,omitempty"`
+}
+
+func (s *Server) taskResponse(c *gin.Context, task Task) taskResponse {
+	out := taskResponse{Task: task}
+	if task.Action != "extension" {
+		return out
+	}
+	var command control.Command
+	if json.Unmarshal([]byte(task.Payload), &command) != nil || command.Action != "extension" {
+		return out
+	}
+	out.Extension = command.Extension
+	action, exists := s.cfg.AgentActions[command.Extension]
+	if !exists {
+		return out
+	}
+	execute, _ := s.auth.Enforce(c.GetString("admin_role"), action.Permission)
+	approve, _ := s.auth.Enforce(c.GetString("admin_role"), action.ApprovalPermission)
+	if execute || approve {
+		out.ExtensionPayload = command.Payload
+	}
+	return out
 }

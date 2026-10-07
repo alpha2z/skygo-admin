@@ -87,3 +87,5 @@ after a lost response. Existing clients omitting `request_id` remain compatible.
 Approved extension workflows and schema v5 migration: [workflow contract](workflows.md).
 
 GET `/tasks/:id` reads a durable task by exact ID, including records outside the latest-200 list. It requires `ops.read`, returns 404 for a missing ID, and omits result logs without `ops.logs`; structured receipts remain available. It does not retry or execute a task.
+
+Task lists and exact task reads include `extension` for extension tasks. `extension_payload` is included only when the current role holds that registered action’s execution or approval permission, enabling a complete review of pending intent. The raw signed envelope and configuration payload remain excluded.
