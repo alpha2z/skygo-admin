@@ -268,6 +268,7 @@ func (s *Server) Router() *gin.Engine {
 	a.GET("/services", s.require("ops.read"), s.services)
 	a.POST("/services", s.require("ops.write"), s.saveService)
 	a.GET("/tasks", s.require("ops.read"), s.tasks)
+	a.GET("/tasks/:id", s.require("ops.read"), s.taskDetail)
 	a.POST("/tasks", s.require("ops.write"), s.createTask)
 	a.POST("/tasks/:id/approve", s.require("ops.approve"), s.approveTask)
 	a.POST("/tasks/:id/cancel", s.require("ops.write"), s.cancelPending("task"))

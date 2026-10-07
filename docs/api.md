@@ -85,3 +85,5 @@ submission flow when this capability is absent; do not fall back to new identiti
 after a lost response. Existing clients omitting `request_id` remain compatible.
 
 Approved extension workflows and schema v5 migration: [workflow contract](workflows.md).
+
+GET `/tasks/:id` reads a durable task by exact ID, including records outside the latest-200 list. It requires `ops.read`, returns 404 for a missing ID, and omits result logs without `ops.logs`; structured receipts remain available. It does not retry or execute a task.

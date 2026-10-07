@@ -897,3 +897,33 @@ func (s *Server) result(c *gin.Context) {
 	}
 	c.JSON(200, gin.H{"ok": true})
 }
+
+// taskDetail preserves access to durable results after they leave the recent list.
+func (s *Server) taskDetail(c *gin.Context) {
+	var row Task
+	if !control.Identifier.MatchString(c.Param("id")) {
+		c.JSON(400, gin.H{"error": "invalid task ID"})
+		return
+	}
+	err := s.db.Where("id = ?", c.Param("id")).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(404, gin.H{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(503, gin.H{"error": "task unavailable"})
+		return
+	}
+	allowed, _ := s.auth.Enforce(c.GetString("admin_role"), "ops.logs")
+	if !allowed {
+		var result control.Result
+		if json.Unmarshal([]byte(row.Result), &result) == nil {
+			result.Logs = ""
+			raw, _ := json.Marshal(result)
+			row.Result = string(raw)
+		} else {
+			row.Result = "{}"
+		}
+	}
+	c.JSON(200, row)
+}
