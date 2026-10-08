@@ -42,6 +42,57 @@ docker compose -f deploy/compose.yaml up -d admin-api admin-web
 生产部署须启用 HTTPS、安全 Cookie、SMTP 和严格的代理信任配置，不能直接沿用本地设置。
 服务正常启动不会自动执行数据库迁移；迁移需要单独运行 `-migrate`。
 
+## 修改或重置管理员密码
+
+在现有部署目录执行，将 `admin` 替换为实际管理员用户名。使用与当前管理库 schema
+匹配的 Admin API 二进制或镜像。
+
+API 容器正在运行时：
+
+```sh
+docker compose exec admin-api admin-api -change-password admin
+```
+
+API 容器已停止时（管理数据库仍须可访问）：
+
+```sh
+docker compose run --rm --no-deps admin-api -change-password admin
+```
+
+沿用该部署的 Compose 文件、环境文件和 profile 参数。例如本仓库的本地部署需把
+`docker compose` 替换为 `docker compose -f deploy/compose.yaml`；使用 `compose.json`
+的部署则追加 `-f compose.json`。命令复用服务已有的私有 DSN 挂载，不启动依赖服务。
+
+直接运行本机二进制：
+
+```sh
+export ADMIN_MYSQL_DSN_FILE=/etc/skygo-admin/private/mysql-dsn
+admin-api -change-password admin
+```
+
+交互终端会隐藏输入，并要求确认两次。新密码至少 **12 个 Unicode 字符**、最多
+**1024 字节**，不能包含换行或 NUL；空格保留。命令不接受明文密码参数或密码环境变量。
+
+自动化场景先准备普通私有密码文件，确保已挂载到容器、容器用户可读，权限为
+`0600` 或更严格，然后执行：
+
+```sh
+docker compose exec -T admin-api admin-api -change-password admin \
+  -password-file /run/private/new-admin-password
+```
+
+本机二进制或一次性容器同样支持 `-password-file`。拒绝符号链接及组／其他用户可访问的
+文件，读取时只移除末尾一个 LF 或 CRLF。成功后删除临时密码文件，不在命令、日志中打印内容。
+
+这是依赖管理数据库访问权限的本地恢复命令，不要求旧密码、API 登录、邮件确认或另一位
+管理员。只需 `ADMIN_MYSQL_DSN_FILE`，不需要 SMTP 或签名密钥；只修改已存在的账号，
+完成后退出，不初始化或迁移数据库。不能与 `-migrate` 同用，也不要修改 bootstrap
+令牌或重新初始化来重置已有管理员。
+
+成功后会在同一事务中更新密码、**撤销该账号全部旧会话**并写入审计，需使用新密码重新登录。
+账号权限、启用／停用状态、TOTP 和恢复码保持不变；下次登录仍受 MFA 和登录锁定约束。
+当前命令要求管理库 schema v6，详细行为见 [命令行改密说明](docs/password-cli.md)。
+
 ## 接入主机与服务
 
 1. 在管理页面创建主机，把一次性返回的主机令牌保存到该主机的私有文件。
@@ -92,5 +143,3 @@ API/Web 自升级使用[选择式发布与 schema v3](docs/publications.md)，�
 Management self-update / 管理端自更新：[System update](docs/system-update.md).
 
 Composition API / 私有扩展接入：[Extension SDK](docs/extensions.md).
-
-管理员命令行改密：`admin-api -change-password admin`，终端隐藏输入并确认两次；详见 [改密说明](docs/password-cli.md)。

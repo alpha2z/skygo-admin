@@ -58,6 +58,66 @@ supply a shell command, mount path or arbitrary health URL.
 
 See [publication workflow and schema v3 migration](docs/publications.md) before upgrading an existing installation.
 
+## Change or recover an administrator password
+
+Run these commands from the existing deployment directory, replacing `admin`
+with the administrator's username. Use the API binary/image matching that
+installation's management database schema.
+
+For a running API container:
+
+```sh
+docker compose exec admin-api admin-api -change-password admin
+```
+
+For a stopped API container (the management database must still be reachable):
+
+```sh
+docker compose run --rm --no-deps admin-api -change-password admin
+```
+
+Keep your usual Compose file, environment and profile options. For this
+repository's local deployment, for example, use `docker compose -f deploy/compose.yaml`
+in place of `docker compose`. The command reuses the service's existing private
+DSN mount; it does not start dependent services.
+
+For a locally installed binary:
+
+```sh
+export ADMIN_MYSQL_DSN_FILE=/etc/skygo-admin/private/mysql-dsn
+admin-api -change-password admin
+```
+
+An interactive terminal prompts twice with echo disabled. The new password must
+contain at least 12 Unicode characters, at most 1024 bytes, and no line breaks or
+NUL. Spaces are preserved. Do not pass the password as a command-line value or an
+environment variable.
+
+For automation, provision a private regular password file already mounted into
+the container and readable by its user, with permissions `0600` or stricter:
+
+```sh
+docker compose exec -T admin-api admin-api -change-password admin \
+  -password-file /run/private/new-admin-password
+```
+
+`-password-file` also works with the local binary or a one-off container.
+Symlinks and group/world access are rejected; one trailing LF or CRLF is removed.
+Remove the temporary password file after successful use; never print its contents.
+
+This is a privileged local recovery command using management database access.
+It does not require the old password, an API login, email confirmation or a second
+administrator. Only `ADMIN_MYSQL_DSN_FILE` is required; SMTP and signing keys are
+not needed. It changes existing accounts only, exits after completion, and never
+initializes or migrates the database. Do not combine it with `-migrate` or try to
+reset an existing account by changing the bootstrap token.
+
+Success revokes **all existing sessions for that administrator** and records an
+audit entry atomically; sign in again with the new password. Roles, account
+activation state, TOTP and recovery codes remain unchanged. MFA and login locks
+still apply. See [password CLI](docs/password-cli.md) for schema compatibility and
+transaction details.
+
 ## Operations
 
 1. Register a service matching its agent inventory ID.
@@ -155,6 +215,3 @@ Web、Agent目录分别包含compose.yaml、.env.example、start.sh、update.sh�
 - [install-ops-agent.sh](install-ops-agent.sh)：下载 Ops Agent 独立部署模板。
 
 下载后执行 `sh install-<组件>.sh`；使用 `--help` 查看输出目录与版本选项。
-
-To change or recover an administrator password locally, use
-`admin-api -change-password admin`. See [password CLI](docs/password-cli.md).
