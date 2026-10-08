@@ -9,3 +9,11 @@ body:not(.signed-in){background:linear-gradient(145deg,#173643,#0d151b 60%,#1726
 
 /* Provider-neutral data cards and query controls. */
 .data-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:16px 0}.data-controls label{min-width:120px}.data-widget{margin:16px 0;overflow-x:auto}.data-widget h3{margin-top:0}.data-widget strong{display:block;font-size:24px;margin:10px 0}.data-widget button{margin:4px 8px 4px 0}.data-widget th button{background:transparent;color:inherit;padding:0;text-align:left}.data-widget p{overflow-wrap:anywhere}
+
+/* Keep language selection visible before sign-in and readable in all locales. */
+header{flex-wrap:wrap}.language-picker{flex:0 0 auto;margin-left:auto;flex-direction:row;align-items:center;font-size:14px}.language-picker select{max-width:180px;background:white;color:#172b3b}header button{margin-left:0}
+body:not(.signed-in)>header{display:flex;position:absolute;top:0;right:0;left:0;background:transparent;justify-content:flex-end;padding:16px 24px;z-index:1}
+body:not(.signed-in)>header>h1,body:not(.signed-in)>header>span{display:none}
+body:not(.signed-in)>main{padding-top:90px}body:not(.signed-in) #notice{top:55px}
+.language-picker>span{display:inline}button,label,h2,h3,p{overflow-wrap:anywhere}dialog{max-height:90vh;overflow:auto}#data select{max-width:100%}
+@media(max-width:700px){header{gap:10px}.language-picker{gap:6px}.language-picker select{padding:7px}body.signed-in>header{padding:12px}th{white-space:normal}}

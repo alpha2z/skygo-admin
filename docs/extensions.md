@@ -98,3 +98,21 @@ standalone HTTP deployment remains unchanged.
 Composition build workflows can pass `--workflow composition.yml` to
 `scripts/build-manifest.py`; the default remains `build.yml`. The value must match
 the workflow configured in the composition trust policy.
+
+## 前端语言接口
+
+通用管理界面支持 `en`、`zh-CN`、`ja`，首次访问默认英语。页头语言选择器将
+偏好保存至浏览器的 `skygo-admin.locale`，切换后重新加载当前路由；不向服务端
+提交语言设置。浏览器禁止存储时使用英语，并提示无法保存新偏好。
+
+`render(ctx)` 增加两个兼容字段：`locale` 为当前语言，`t(key, params?)` 翻译
+通用界面文案并替换命名参数，例如 `t('Execution {id}', {id: taskID})`。
+`AdminLocale.text(key, params?)` 继续可用。缺失目标语言回退英语，未知键保持
+原文；参数仅作为文本插值，不解释 HTML。扩展应将返回值写入 `textContent`。
+
+扩展拥有自己的业务文案和字典；这些接口不会自动翻译扩展标题、用户输入、
+服务标识、日志或业务数据。现有扩展无需修改即可运行。通用数据面板只翻译
+自身控件，保留数据提供方的字段标题、标签与记录。
+
+有未提交表单时，切换语言先要求确认；API 请求、邮件确认及结果弹窗期间禁止
+切换。切换不自动重放变更请求。协议值、审计原文、内部错误及邮件内容不变。

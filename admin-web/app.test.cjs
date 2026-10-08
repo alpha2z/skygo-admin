@@ -8,15 +8,15 @@ test('catalog authorization and outage errors remain fail closed',async()=>{cons
 test('inventory separates host connectivity from service coverage',()=>{
  const{hostSummary,serviceSummary}=require('./app.js'),now=Date.parse('2026-01-01T00:00:30Z');
  const h={id:'host',active:true,last_seen:'2026-01-01T00:00:29Z',observations:'[]'};
- assert.equal(hostSummary(h,now).status,'在线');assert.equal(hostSummary(h,now).service_count,0);
+ assert.equal(hostSummary(h,now).status,'online');assert.equal(hostSummary(h,now).service_count,0);
  const s={id:'worker',definition:JSON.stringify({host_id:'host',image:'example/worker:stable'})};
- assert.equal(serviceSummary(s,[h],now).status,'未上报');assert.equal(serviceSummary(s,[h],now).healthy,'未知');
- h.observations='not valid';assert.equal(hostSummary(h,now).service_count,'未知');
+ assert.equal(serviceSummary(s,[h],now).status,'not_reported');assert.equal(serviceSummary(s,[h],now).healthy,'unknown');
+ h.observations='not valid';assert.equal(hostSummary(h,now).service_count,null);
 });
 test('old observations never imply running health or open admission',()=>{
  const{serviceSummary}=require('./app.js'),now=Date.parse('2026-01-01T00:10:00Z');
  const h={id:'host',active:true,last_seen:'2026-01-01T00:00:00Z',observations:[{service:'worker',running:true,healthy:true,extensions:{'game-maintenance':{maintenance:{at:'2026-01-01T00:00:00Z',admission_closed:false}}}}]};
  const s={id:'worker',definition:{host_id:'host'}};let r=serviceSummary(s,[h],now);
- assert.equal(r.status,'主机离线');assert.equal(r.healthy,'未知');assert.equal(r.maintenance,'未知');
- h.last_seen='2026-01-01T00:09:59Z';r=serviceSummary(s,[h],now);assert.equal(r.status,'运行中');assert.equal(r.maintenance,'未知');
+ assert.equal(r.status,'host_offline');assert.equal(r.healthy,'unknown');assert.equal(r.maintenance,'unknown');
+ h.last_seen='2026-01-01T00:09:59Z';r=serviceSummary(s,[h],now);assert.equal(r.status,'running');assert.equal(r.maintenance,'unknown');
 });

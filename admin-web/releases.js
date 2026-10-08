@@ -1,4 +1,5 @@
 'use strict';
+const releaseText=(key,params)=>typeof AdminLocale==='undefined'?key.replace(/\{(\w+)\}/g,(m,k)=>params&&Object.hasOwn(params,k)?String(params[k]):m):AdminLocale.text(key,params);
 const ReleaseUI = (() => {
   const pending = new Set();
   const uncertain = new Set();
@@ -19,6 +20,8 @@ const ReleaseUI = (() => {
   function el(tag, text, cls) { const node = document.createElement(tag); if (text !== undefined) node.textContent = typeof AdminLocale==='undefined'?text:AdminLocale.text(text); if (cls) node.className = cls; return node; }
   function button(title, action, disabled = false) { const b = el('button', title); b.type = 'button'; b.disabled = disabled; b.onclick = action; return b; }
   function card(title) { const c = el('article', undefined, 'release-card'); c.append(el('h3', title)); return c; }
+
+ function rawNode(tag,text){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;}
   async function render(ctx) {
     const {root, api, allowed, notice, showResult, go, isCurrent, page} = ctx;
     let selected = state(location.hash);
@@ -30,7 +33,7 @@ const ReleaseUI = (() => {
       // Disable all relevant actions before a confirmation dialog can suspend us.
       root.querySelectorAll('button[data-mutation]').forEach(b => { b.disabled = true; });
       try { const result = await api(path, 'POST', body); showResult(result); }
-      catch (e) { if (!e.status || e.status >= 500) uncertain.add(key); notice(e.message + (uncertain.has(key) ? ' Check persisted status before retrying.' : '')); }
+      catch (e) { if (!e.status || e.status >= 500) uncertain.add(key); notice(uncertain.has(key)?releaseText('{error} Check persisted status before retrying.',{error:releaseText(e.message)}):releaseText(e.message)); }
       finally { pending.delete(key); if (isCurrent()) await reload(); }
     }
     if (page === 'release-settings') {
@@ -40,11 +43,11 @@ const ReleaseUI = (() => {
       connection.append(el('p', settings.github_configured ? `${settings.github.repository} / ${settings.github.workflow}` : 'GitHub is not configured.'));
       if(settings.github_configured) connection.append(el('p', settings.github_connected ? 'Provider read succeeded.' : settings.github_error || 'Provider status unavailable.'));
       connection.append(el('p', 'Registry credentials remain on each agent. This service does not display tokens or secret-file paths.'));
-      if (settings.github) connection.append(el('p', settings.github.auto_register ? 'Automatic trusted registration enabled; publications still require independent approval.' : 'Automatic trusted registration disabled. Enable auto_register explicitly in local GitHub configuration.'));
+      if (settings.github) connection.append(el('p', settings.github.auto_register ? (ctx.independentApprovalEnabled===false?'Automatic trusted registration enabled; publications still require confirmation.':'Automatic trusted registration enabled; publications still require independent approval.') : 'Automatic trusted registration disabled. Enable auto_register explicitly in local GitHub configuration.'));
       if (settings.github) connection.append(el('p', settings.github.publish_images ? 'Signed image publication is enabled for approved dispatches.' : 'Archive-only build mode. Enable publish_images locally to produce registrable signed images.'));
       root.append(connection);
-      const trust = card(`Build signing trust · ${settings.key_count} public keys`);
-      for (const key of settings.keys || []) trust.append(el('code', key.id), el('p', key.public_key));
+      const trust = card(releaseText('Build signing trust · {count} public keys',{count:settings.key_count}));
+      for (const key of settings.keys || []) trust.append(rawNode('code', key.id), rawNode('p', key.public_key));
       if (settings.can_add_key) {
         const form = el('form'), label = el('label', 'Separate CI Ed25519 public key (base64)'), input = el('input');
         input.name = 'public_key'; input.required = true; input.autocomplete = 'off'; label.append(input);
@@ -61,13 +64,13 @@ const ReleaseUI = (() => {
     if (selected.tab === 'builds') {
       const data = await api('builds'); if (!isCurrent()) return;
       if (!data.enabled) { root.append(el('p', 'Configure an approved GitHub workflow in Release settings.')); return; }
-      root.append(el('p', `${data.config.repository} / ${data.config.workflow} · ${data.build_trust.key_count} build public keys`));
+      root.append(el('p', releaseText('{repository} / {workflow} · {count} build public keys',{repository:data.config.repository,workflow:data.config.workflow,count:data.build_trust.key_count})));
       if (data.build_trust.error_code) root.append(button('Configure build public keys', () => go('release-settings')));
       for (const run of data.runs || []) {
         const key = `register-${run.id}-${run.run_attempt}`, reg = run.registration || {status: 'unknown'};
         if (checking.has(key) && ['registered','unregistered'].includes(reg.status)) { uncertain.delete(key); checking.delete(key); }
-        const box = card(`Build #${run.run_number} · attempt ${run.run_attempt || '?'}`);
-        box.append(el('p', DistributionUI.buildTime(run.run_started_at)),el('p',run.commit_message||'Commit message unavailable'),el('p', `${run.head_branch} · ${run.head_sha}`), el('p', `Build: ${run.status} / ${run.conclusion || 'pending'}`), el('strong', `Registration: ${reg.status}`, reg.status === 'registered' ? 'status-ready' : ''));
+        const box = card(releaseText('Build #{number} · attempt {attempt}',{number:run.run_number,attempt:run.run_attempt||'?'}));
+        box.append(el('p', DistributionUI.buildTime(run.run_started_at)),rawNode('p',run.commit_message||releaseText('Commit message unavailable')),el('p', `${run.head_branch} · ${run.head_sha}`), el('p', releaseText('Build: {status} / {conclusion}',{status:releaseText(run.status),conclusion:releaseText(run.conclusion||'pending')})), el('strong', releaseText('Registration: {status}',{status:releaseText(reg.status)}), reg.status === 'registered' ? 'status-ready' : ''));
         if (reg.status === 'registered') {
           box.append(el('p', `${reg.release_id} · ${reg.registered_at}`));
           for (const image of reg.images || []) box.append(el('p', `${image.service} · ${image.platform}`));
@@ -88,27 +91,27 @@ const ReleaseUI = (() => {
     }
     const versions = await api('releases'); if (!isCurrent()) return;
     if (selected.version && !versions.some(v=>v.id===selected.version)) { versions.push(await api('releases/'+encodeURIComponent(selected.version))); if (!isCurrent()) return; }
-    const picker = el('select'); picker.setAttribute('aria-label', 'Trusted version');
-    picker.append(new Option('选择已验证版本', ''));
+    const picker = el('select'); picker.setAttribute('aria-label', releaseText('Trusted version'));
+    picker.append(new Option(releaseText('Choose a verified version'), ''));
     for (const v of versions) picker.append(new Option(v.id, v.id));
     picker.value = versions.some(v => v.id === selected.version) ? selected.version : '';
     picker.onchange = () => navigate({version: picker.value}); root.append(picker);
     const version = versions.find(v => v.id === selected.version); if (!version) return;
-    const provenance = card(version.id); provenance.append(el('p', `${version.manifest.build.repository} · ${version.manifest.build.source_commit} · attempt ${version.manifest.build.run_attempt}`));
-    for (const i of version.manifest.images) provenance.append(el('p', `${i.service} · ${i.platform}`), el('code', i.reference));
+    const provenance = rawNode('article'); provenance.className='release-card';provenance.append(rawNode('h3',version.id)); provenance.append(el('p', releaseText('{repository} · {commit} · attempt {attempt}',{repository:version.manifest.build.repository,commit:version.manifest.build.source_commit,attempt:version.manifest.build.run_attempt})));
+    for (const i of version.manifest.images) provenance.append(el('p', `${i.service} · ${i.platform}`), rawNode('code', i.reference));
     root.append(provenance);
     const groups = await api(`releases/${encodeURIComponent(version.id)}/admin-preparation`); if (!isCurrent()) return;
-    const target = el('select'); target.setAttribute('aria-label', 'Managed admin host'); target.append(new Option(selected.host && !groups.some(g => g.host_id === selected.host) ? 'Previous host unavailable; choose explicitly' : 'Choose target host', ''));
-    for (const g of groups) target.append(new Option(`${g.host_id} · ${g.status}`, g.host_id));
+    const target = el('select'); target.setAttribute('aria-label', releaseText('Managed admin host')); target.append(new Option(releaseText(selected.host && !groups.some(g => g.host_id === selected.host) ? 'Previous host unavailable; choose explicitly' : 'Choose target host'), ''));
+    for (const g of groups) target.append(new Option(`${g.host_id} · ${releaseText(g.status)}`, g.host_id));
     target.value = selectHost(groups, selected.host);
     if (!selected.host && target.value) { selected.host = target.value; history.replaceState(null, '', locationFor(selected)); }
     target.onchange = () => navigate({host: target.value}); root.append(target);
     const group = groups.find(g => g.host_id === target.value); if (!group) return;
-    const box = card(`Admin image preparation · ${group.status}`); box.append(el('p', group.reason));
+    const box = card(releaseText('Admin image preparation · {status}',{status:releaseText(group.status)})); box.append(el('p', group.reason));
     for (const t of group.targets) {
-      box.append(el('h4', `${t.kind} / ${t.service}`), el('p', `${t.platform} · ${t.status}`), el('code', t.image));
-      if (t.image_id) box.append(el('p', `Verified Docker ID: ${t.image_id}`));
-      if (t.verified_at) box.append(el('p', `Verified: ${t.verified_at}`));
+      box.append(el('h4', `${t.kind} / ${t.service}`), el('p', `${t.platform} · ${releaseText(t.status)}`), rawNode('code', t.image));
+      if (t.image_id) box.append(el('p', releaseText('Verified Docker ID: {id}',{id:t.image_id})));
+      if (t.verified_at) box.append(el('p', releaseText('Verified: {time}',{time:t.verified_at})));
       if (t.error_code) box.append(el('p', t.error_code));
     }
     const key = `prepare-${group.batch}`;
@@ -120,9 +123,9 @@ const ReleaseUI = (() => {
       }, pending.has(key) || (!uncertain.has(key) && !group.can_prepare)); b.dataset.mutation = key; box.append(b);
       box.append(button('Next: upgrade tasks', () => navigate({tab: 'upgrade'}), group.status !== 'ready'));
     } else {
-      box.append(el('p', 'Prepared images do not authorize an upgrade. API/Web publications use one recovery unit and an independent approver. No configuration or database migration is automatic.'));
+      box.append(el('p', ctx.independentApprovalEnabled===false?'Prepared images do not authorize an upgrade. Confirm the API/Web recovery unit before execution. No configuration or database migration is automatic.':'Prepared images do not authorize an upgrade. API/Web publications use one recovery unit and an independent approver. No configuration or database migration is automatic.'));
       box.append(button('Prepare / recheck images', () => navigate({tab: 'versions'})));
-      for (const t of group.targets) box.append(button(`Review ${t.kind} publication`, () => ctx.createUpgrade(t.service, t.image), group.status !== 'ready' || !allowed('ops.write')));
+      for (const t of group.targets) box.append(button(releaseText('Review {kind} publication',{kind:t.kind}), () => ctx.createUpgrade(t.service, t.image), group.status !== 'ready' || !allowed('ops.write')));
     }
     root.append(box);
   }
