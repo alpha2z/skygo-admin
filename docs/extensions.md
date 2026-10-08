@@ -116,3 +116,14 @@ the workflow configured in the composition trust policy.
 
 有未提交表单时，切换语言先要求确认；API 请求、邮件确认及结果弹窗期间禁止
 切换。切换不自动重放变更请求。协议值、审计原文、内部错误及邮件内容不变。
+
+## 运行时插件自定义查询权限
+
+运营者可在 `ADMIN_PLUGINS_CONFIG` 的单个 provider 中显式声明
+`"permissions": ["example.stats.read"]`，然后由该 provider 的页面和路由引用。
+最多 64 个合法且不重复的权限名称；未声明且非内置的权限仍拒绝注册。
+这是本地受控配置，不接受插件响应动态扩展权限，不影响其他 provider 的权限范围。
+
+声明只允许注册，不在正常启动时修改数据库授权。新权限需先通过显式增量迁移
+授予预期角色；其他角色仍默认拒绝。签名包、会话、CSRF 和路由鉴权继续生效。
+插件页面必须导出 `render(ctx)`；`mount(ctx)` 不是宿主调用入口。

@@ -184,3 +184,24 @@ func TestRuntimePluginExplicitPermissionLoadsWithoutGrantingOtherRoles(t *testin
 		t.Fatal("undeclared application permission accepted")
 	}
 }
+
+func TestRuntimePluginPermissionDeclarationsRemainScoped(t *testing.T) {
+	for name, permissions := range map[string][]string{"invalid": {"*"}, "duplicate": {"example.read", "example.read"}, "empty": {""}} {
+		t.Run(name, func(t *testing.T) {
+			file := pluginPageFixture(t)
+			var installed PluginFile
+			if err := plugin.ReadConfig(file, &installed); err != nil {
+				t.Fatal(err)
+			}
+			installed.Providers[0].Permissions = permissions
+			raw, _ := json.Marshal(installed)
+			if err := os.WriteFile(file, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("ADMIN_PLUGINS_CONFIG", file)
+			if loadPluginActions(&Config{}) == nil {
+				t.Fatal("invalid permission declaration accepted")
+			}
+		})
+	}
+}

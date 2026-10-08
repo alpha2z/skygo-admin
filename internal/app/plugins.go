@@ -29,10 +29,11 @@ type PluginRouteConfig struct {
 }
 
 type PluginProviderConfig struct {
-	DataPanels []PluginDataPanelConfig `json:"data_panels,omitempty"`
-	Workflows  []PluginWorkflowConfig  `json:"workflows,omitempty"`
-	Services   []string                `json:"services,omitempty"`
-	Routes     []PluginRouteConfig     `json:"routes,omitempty"`
+	Permissions []string                `json:"permissions,omitempty"`
+	DataPanels  []PluginDataPanelConfig `json:"data_panels,omitempty"`
+	Workflows   []PluginWorkflowConfig  `json:"workflows,omitempty"`
+	Services    []string                `json:"services,omitempty"`
+	Routes      []PluginRouteConfig     `json:"routes,omitempty"`
 	plugin.Endpoint
 	plugin.Trust
 	Actions         []PluginActionConfig `json:"actions"`
@@ -155,10 +156,21 @@ func installPluginPages(c *Config, p PluginProviderConfig) error {
 	for _, permission := range allPermissions {
 		allowed[permission] = true
 	}
+	if len(p.Permissions) > 64 {
+		return errors.New("too many explicit plugin permissions")
+	}
+	declared := map[string]bool{}
+	for _, permission := range p.Permissions {
+		if !permissionID.MatchString(permission) || declared[permission] {
+			return errors.New("invalid explicit plugin permission")
+		}
+		declared[permission] = true
+		allowed[permission] = true
+	}
 	x := Extension{ID: p.ID, Assets: plugin.AssetFS(assets), Pages: p.Pages, runtimePlugin: true}
 	for _, page := range p.Pages {
 		if !allowed[page.Permission] {
-			return errors.New("plugin page requires explicitly provisioned core permission")
+			return errors.New("plugin page requires an explicitly declared permission")
 		}
 		x.Policies = append(x.Policies, RolePolicy{Role: "superadmin", Permission: page.Permission})
 	}
