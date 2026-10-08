@@ -143,3 +143,44 @@ func TestRuntimePluginResourcesMySQL(t *testing.T) {
 		t.Fatal("rejected operation reached plugin")
 	}
 }
+
+func TestRuntimePluginExplicitPermissionLoadsWithoutGrantingOtherRoles(t *testing.T) {
+	file := pluginPageFixture(t)
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var installation map[string]any
+	if err := json.Unmarshal(raw, &installation); err != nil {
+		t.Fatal(err)
+	}
+	provider := installation["providers"].([]any)[0].(map[string]any)
+	provider["permissions"] = []string{"example.stats.read"}
+	provider["pages"].([]any)[0].(map[string]any)["permission"] = "example.stats.read"
+	provider["routes"] = []map[string]string{{"method": "GET", "path": "/statistics", "permission": "example.stats.read"}}
+	raw, _ = json.Marshal(installation)
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ADMIN_PLUGINS_CONFIG", file)
+	cfg := Config{}
+	if err := loadPluginActions(&cfg); err != nil {
+		t.Fatalf("explicit application permission must register: %v", err)
+	}
+	if err := validateExtensions(cfg.Extensions); err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range cfg.Extensions[0].Policies {
+		if policy.Permission == "example.stats.read" && policy.Role != "superadmin" {
+			t.Fatal("custom permission granted to an unconfigured role")
+		}
+	}
+	delete(provider, "permissions")
+	raw, _ = json.Marshal(installation)
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if loadPluginActions(&Config{}) == nil {
+		t.Fatal("undeclared application permission accepted")
+	}
+}
