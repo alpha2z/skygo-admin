@@ -29,9 +29,10 @@ type PluginRouteConfig struct {
 }
 
 type PluginProviderConfig struct {
-	Workflows []PluginWorkflowConfig `json:"workflows,omitempty"`
-	Services  []string               `json:"services,omitempty"`
-	Routes    []PluginRouteConfig    `json:"routes,omitempty"`
+	DataPanels []PluginDataPanelConfig `json:"data_panels,omitempty"`
+	Workflows  []PluginWorkflowConfig  `json:"workflows,omitempty"`
+	Services   []string                `json:"services,omitempty"`
+	Routes     []PluginRouteConfig     `json:"routes,omitempty"`
 	plugin.Endpoint
 	plugin.Trust
 	Actions         []PluginActionConfig `json:"actions"`
@@ -64,6 +65,9 @@ func loadPluginActions(c *Config) error {
 			return errors.New("invalid plugin provider")
 		}
 		names := []string{}
+		if len(p.DataPanels) > 0 {
+			names = append(names, "data-read")
+		}
 		if len(p.Services) > 0 {
 			names = append(names, "inventory-read")
 		}
@@ -118,7 +122,7 @@ func loadPluginActions(c *Config) error {
 
 // installPluginPages reuses the authenticated extension catalog and core permissions.
 func installPluginPages(c *Config, p PluginProviderConfig) error {
-	if len(p.Pages) == 0 && len(p.Routes) == 0 {
+	if len(p.Pages) == 0 && len(p.Routes) == 0 && len(p.DataPanels) == 0 {
 		return nil
 	}
 	raw, err := os.ReadFile(p.ManifestFile)
@@ -205,6 +209,9 @@ func installPluginPages(c *Config, p PluginProviderConfig) error {
 			}
 			c.Data(result.Status, "application/json", result.Body)
 		}})
+	}
+	if err := installDataPanels(&x, p, assets); err != nil {
+		return err
 	}
 	c.Extensions = append(c.Extensions, x)
 	return validateExtensions(c.Extensions)
