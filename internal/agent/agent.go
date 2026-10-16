@@ -23,35 +23,37 @@ import (
 )
 
 type LocalService struct {
-	ObservationOnly bool     `json:"observation_only,omitempty"`
-	PluginRevision  string   `json:"plugin_revision,omitempty"`
-	Extensions      []string `json:"extensions,omitempty"`
-	SyncImageEnv    bool     `json:"sync_image_env,omitempty"`
-	CacheDir        string   `json:"-"`
-	ID              string   `json:"id"`
-	ComposeFile     string   `json:"compose_file"`
-	EnvFile         string   `json:"env_file"`
-	Project         string   `json:"project"`
-	ComposeService  string   `json:"compose_service"`
-	ImageVariable   string   `json:"image_variable"`
-	AllowedImages   []string `json:"allowed_images"`
-	HealthURL       string   `json:"health_url"`
-	ConfigPath      string   `json:"config_path"`
-	SkygoRegistry   bool     `json:"skygo_registry"`
-	AllowLogs       bool     `json:"allow_logs"`
+	RegistryPullDisabled bool     `json:"-"`
+	ObservationOnly      bool     `json:"observation_only,omitempty"`
+	PluginRevision       string   `json:"plugin_revision,omitempty"`
+	Extensions           []string `json:"extensions,omitempty"`
+	SyncImageEnv         bool     `json:"sync_image_env,omitempty"`
+	CacheDir             string   `json:"-"`
+	ID                   string   `json:"id"`
+	ComposeFile          string   `json:"compose_file"`
+	EnvFile              string   `json:"env_file"`
+	Project              string   `json:"project"`
+	ComposeService       string   `json:"compose_service"`
+	ImageVariable        string   `json:"image_variable"`
+	AllowedImages        []string `json:"allowed_images"`
+	HealthURL            string   `json:"health_url"`
+	ConfigPath           string   `json:"config_path"`
+	SkygoRegistry        bool     `json:"skygo_registry"`
+	AllowLogs            bool     `json:"allow_logs"`
 }
 type Config struct {
-	Plugins           []PluginConfig                                             `json:"plugins,omitempty"`
-	Guard             func(context.Context, LocalService, control.Command) error `json:"-"`
-	Extensions        map[string]ExtensionAction                                 `json:"-"`
-	ControlUnit       *LocalUnit                                                 `json:"control_unit,omitempty"`
-	HostID            string                                                     `json:"host_id"`
-	APIURL            string                                                     `json:"api_url"`
-	TokenFile         string                                                     `json:"token_file"`
-	PublicKeyFile     string                                                     `json:"public_key_file"`
-	StateDir          string                                                     `json:"state_dir"`
-	AllowLoopbackHTTP bool                                                       `json:"allow_loopback_http"`
-	Services          []LocalService                                             `json:"services"`
+	RegistryPullDisabled bool                                                       `json:"registry_pull_disabled,omitempty"`
+	Plugins              []PluginConfig                                             `json:"plugins,omitempty"`
+	Guard                func(context.Context, LocalService, control.Command) error `json:"-"`
+	Extensions           map[string]ExtensionAction                                 `json:"-"`
+	ControlUnit          *LocalUnit                                                 `json:"control_unit,omitempty"`
+	HostID               string                                                     `json:"host_id"`
+	APIURL               string                                                     `json:"api_url"`
+	TokenFile            string                                                     `json:"token_file"`
+	PublicKeyFile        string                                                     `json:"public_key_file"`
+	StateDir             string                                                     `json:"state_dir"`
+	AllowLoopbackHTTP    bool                                                       `json:"allow_loopback_http"`
+	Services             []LocalService                                             `json:"services"`
 }
 type Driver interface {
 	Observe(context.Context, LocalService) (control.Observation, error)
@@ -105,6 +107,7 @@ func New(c Config, d Driver) (*Agent, error) {
 		return nil, errors.New("invalid public key")
 	}
 	for i := range c.Services {
+		c.Services[i].RegistryPullDisabled = c.RegistryPullDisabled
 		c.Services[i].CacheDir = filepath.Join(c.StateDir, "images")
 	}
 	for name, x := range c.Extensions {

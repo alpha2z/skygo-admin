@@ -124,3 +124,15 @@ Authenticated Agent routes under `/agent/v1/image-deliveries/:id` provide
 `GET /archive`, `POST /attempts` (`task_id`) and `POST /progress` (task, attempt and
 monotonic sequence). Existing preparation/publication routes select the configured
 transport; their client selection and approval contracts remain intact.
+
+Workflow `prepare-image` steps use the same central queue as publication
+preparation. Provider-owned workflows revalidate their frozen scope and signed
+release through the provider before a central download; they do not require a
+second public release record. The workflow remains waiting during central
+preparation and never converts a central failure into a direct pull.
+
+Set `registry_pull_disabled: true` in Agent configuration to prohibit Registry
+fallback when a requested image is absent locally. Central archive imports and
+verified local cached images remain usable. This is an operator-side policy;
+keep Registry credentials only on the controller and mount the daemon's storage
+root read-only for archive capacity checks.

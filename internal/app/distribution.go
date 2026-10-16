@@ -196,8 +196,15 @@ func (s *Server) distributionStep(ctx context.Context) {
 		if err := tx.First(&task, "id = ?", d.TaskID).Error; err != nil {
 			return err
 		}
-		if _, err := s.trustedRelease(tx, d.ReleaseID); err != nil {
-			return err
+		if task.WorkflowID != "" {
+			// Workflow providers revalidate their own signed release and frozen scope.
+			if err := s.workflowDispatch(tx, task); err != nil {
+				return err
+			}
+		} else {
+			if _, err := s.trustedRelease(tx, d.ReleaseID); err != nil {
+				return err
+			}
 		}
 		if time.Now().After(task.ExpiresAt) {
 			return errConflict

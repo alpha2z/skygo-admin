@@ -457,7 +457,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 				if tx.First(&child, "id = ?", w.ChildID).Error != nil {
 					return errConflict
 				}
-				if child.Status == "queued" || child.Status == "dispatched" || child.Status == "uncertain" {
+				if child.Status == "preparing" || child.Status == "queued" || child.Status == "dispatched" || child.Status == "uncertain" {
 					w.Status = "waiting"
 					if child.Status == "uncertain" {
 						w.Code = "RESULT_UNCERTAIN"
@@ -616,7 +616,16 @@ func (s *Server) workflowTick(ctx context.Context) error {
 			}
 			raw, _ := json.Marshal(command)
 			child := Task{SingleConfirmation: w.SingleConfirmation, ID: command.ID, WorkflowID: w.ID, HostID: target.Host, ServiceID: target.Service, Action: command.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: w.RequestedBy, ApprovedBy: w.ApprovedBy, CreatedAt: time.Now().UTC(), ExpiresAt: w.ExpiresAt}
-			if err = tx.Create(&child).Error; err != nil {
+			if child.Action == "prepare-image" {
+				var host Host
+				if err = tx.First(&host, "id = ?", target.Host).Error; err != nil {
+					return err
+				}
+				err = s.queuePreparation(tx, &child, "", host).Error
+			} else {
+				err = tx.Create(&child).Error
+			}
+			if err != nil {
 				return err
 			}
 			if tx.Model(&record).Update("busy_task", child.ID).Error != nil {
