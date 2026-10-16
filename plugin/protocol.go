@@ -21,6 +21,12 @@ const MaxBody = 1 << 20
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
 var revision = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var rejectionCode = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+
+// RejectionError exposes an explicitly safe code, never internal error text.
+type RejectionError struct{ Code string }
+
+func (e *RejectionError) Error() string { return e.Code }
 
 type Endpoint struct {
 	ID       string `json:"id"`
@@ -40,6 +46,7 @@ type Request struct {
 	Command     json.RawMessage  `json:"command,omitempty"`
 }
 type Response struct {
+	Code     string          `json:"code,omitempty"`
 	Version  int             `json:"version"`
 	Revision string          `json:"revision"`
 	Data     json.RawMessage `json:"data,omitempty"`
@@ -80,6 +87,12 @@ func (e Endpoint) Call(ctx context.Context, r Request, out any) error {
 	}
 	defer response.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(response.Body, MaxBody+1))
+	if err == nil && len(b) <= MaxBody && response.StatusCode == http.StatusUnprocessableEntity {
+		var rejected Response
+		if json.Unmarshal(b, &rejected) == nil && rejected.Version == Version && rejected.Revision == e.Revision && rejectionCode.MatchString(rejected.Code) {
+			return &RejectionError{Code: rejected.Code}
+		}
+	}
 	if err != nil || len(b) > MaxBody || response.StatusCode != 200 {
 		return errors.New("local plugin rejected operation")
 	}

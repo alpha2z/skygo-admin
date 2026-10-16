@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 )
@@ -39,6 +40,13 @@ func Handler(endpoint Endpoint, call func(context.Context, Request) (any, error)
 		}
 		out, err := call(r.Context(), req)
 		if err != nil {
+			var rejected *RejectionError
+			if errors.As(err, &rejected) && rejectionCode.MatchString(rejected.Code) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_ = json.NewEncoder(w).Encode(Response{Version: Version, Revision: endpoint.Revision, Code: rejected.Code})
+				return
+			}
 			http.Error(w, "plugin rejected operation", 422)
 			return
 		}

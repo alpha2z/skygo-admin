@@ -84,3 +84,30 @@ func TestReadConfigRejectsUnsafeFiles(t *testing.T) {
 		t.Fatal("writable configuration accepted")
 	}
 }
+
+func TestSafeRejectionCodes(t *testing.T) {
+	for _, code := range []string{"REVIEW_REQUIRED", "private diagnostic with secrets"} {
+		dir, err := os.MkdirTemp("", "sgp-code-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(dir)
+		e := Endpoint{ID: "sample", Socket: filepath.Join(dir, "p.sock"), Revision: strings.Repeat("a", 64)}
+		l, err := net.Listen("unix", e.Socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := &http.Server{Handler: Handler(e, func(context.Context, Request) (any, error) { return nil, &RejectionError{Code: code} })}
+		go s.Serve(l)
+		err = e.Call(context.Background(), Request{Operation: "workflow-plan"}, nil)
+		s.Close()
+		var typed *RejectionError
+		if code == "REVIEW_REQUIRED" {
+			if !errors.As(err, &typed) || typed.Code != code {
+				t.Fatalf("safe rejection lost: %v", err)
+			}
+		} else if err == nil || strings.Contains(err.Error(), "private diagnostic") {
+			t.Fatal("unsafe diagnostic escaped")
+		}
+	}
+}

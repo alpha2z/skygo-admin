@@ -139,3 +139,9 @@ permissions, scripts and routes are unchanged. Extension modules receive
 `ctx.locale`; keep application translations in the extension, not the core.
 Deploy catalog/API support and the matching Web assets together before enabling
 localized descriptors. The default locale is English until the user saves a choice.
+
+Local plugins may return `plugin.RejectionError{Code: "REVIEW_REQUIRED"}` for an
+explicitly safe, stable rejection code. The optional code is returned with protocol
+version and revision in a 422 response; clients validate both identities and the
+bounded uppercase identifier. Unknown errors and older plugins retain the generic
+rejection. Codes must not contain internal diagnostics, paths or user input.
