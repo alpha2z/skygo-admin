@@ -7,6 +7,7 @@ type Archive = core.Archive
 type Progress = core.Progress
 type Cleanup = core.Cleanup
 type Service = core.Service
+type AgentUpdate = core.AgentUpdate
 type Command = core.Command
 type Envelope = core.Envelope
 type Result = core.Result

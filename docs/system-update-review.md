@@ -7,7 +7,7 @@
 | Authentication, captcha, sessions, permissions | Existing authentication and authorization modules | Retained; no weakening of login or authorization |
 | Operation confirmation, independent approval, audit | Existing confirmation and task/publication handlers | Retained; image preparation does not authorize execution |
 | Trusted build registration and immutable identity | Release manifests, trust keys and registration worker | Retained; no unsigned or tag-based update path |
-| Distribution, resume and attempt history | Distribution, registry cache and transfer modules | Retained; direct pull remains supported |
+| Distribution, resume and attempt history | Distribution, registry cache and transfer modules | Central archives required; Agent Registry pulls removed |
 | Protected cleanup | Cleanup preview/approval and Agent managed-resource checks | Retained; no global prune |
 | Recovery and environment persistence | Agent recovery-unit and environment journals | Retained; example now explicitly enables selected-image persistence |
 | Update navigation and live result | Shared publication UI | Added dedicated System update entry, inventory-only read and bounded record observation |

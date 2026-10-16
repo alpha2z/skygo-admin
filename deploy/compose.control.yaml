@@ -21,9 +21,11 @@ services:
       ADMIN_SMTP_USERNAME: ${ADMIN_SMTP_USERNAME:-}
       ADMIN_SMTP_FROM: ${ADMIN_SMTP_FROM:?Configure sender}
       ADMIN_SMTP_PASSWORD_FILE: /run/private/smtp-password
+      ADMIN_DISTRIBUTION_CONFIG: /run/private/distribution.json
       ADMIN_GITHUB_CONFIG: /run/private/github.json
     volumes:
       - ./private:/run/private:ro
+      - ./distribution-cache:/var/lib/skygo-admin/distribution
     ports: ["127.0.0.1:18391:18391"]
     read_only: true
     tmpfs: [/tmp]

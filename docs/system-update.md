@@ -6,7 +6,7 @@ policy. See [approval modes and schema v6](approval.md).
 
 System update uses the existing publication API and an independently running host
 Agent. It replaces Docker images, not executable files in container writable
-layers. API/Web form one recovery unit; the Agent itself is maintained separately.
+layers. API/Web form one recovery unit; Compose Agent updates run as separate tasks through an independent worker; see [Agent updates](agent-update.md). Host-binary Agents remain manually maintained.
 
 ## Prepare the installation
 

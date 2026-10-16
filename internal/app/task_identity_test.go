@@ -22,6 +22,7 @@ func TestTaskRequestIdentitySurvivesRetryMySQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := map[string]any{"request_id": "stable-request", "service": "service", "action": "deploy", "image": "example/service@sha256:" + strings.Repeat("b", 64)}
+	centralTestReceipt(t, s, "host", "service", request["image"].(string))
 	first := call(r, owner, "POST", "/api/v1/tasks", request, nil)
 	check(t, first, 200)
 	var original Task

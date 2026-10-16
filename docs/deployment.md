@@ -56,8 +56,8 @@ production defaults. Restrict access to MySQL and use a dedicated management use
 
 Compose must use the named image variable, and each managed service must have one
 container. The agent uses `up -d --no-deps --pull never` after pulling the approved
-immutable digest. It cannot execute remote shell input. Registry login is local
-Docker configuration; registry credentials are not stored in management tasks.
+immutable digest. It cannot execute remote shell input. Registry credentials belong only to the Admin private distribution configuration.
+Agents receive authenticated archives from Admin and never pull from a registry.
 
 Persist the agent state directory and retain it during upgrades. Access to Docker
 is equivalent to host administration: run the agent only on intended managed hosts.

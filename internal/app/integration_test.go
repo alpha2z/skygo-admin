@@ -115,6 +115,7 @@ func TestIsolatedManagementWorkflow(t *testing.T) {
 	image := "example/worker@sha256:" + strings.Repeat("a", 64)
 	check(t, call(r, owner, "POST", "/api/v1/services", control.Service{ID: "worker", HostID: "host-a", Image: image}, nil), 200)
 	check(t, call(r, nil, "POST", "/agent/v1/heartbeat", control.Heartbeat{Version: 1, BootID: "boot-a"}, headers), 200)
+	centralTestReceipt(t, s, "host-a", "worker", image)
 	taskResponse := call(r, owner, "POST", "/api/v1/tasks", map[string]string{"service": "worker", "action": "deploy", "image": image}, nil)
 	check(t, taskResponse, 200)
 	var task Task

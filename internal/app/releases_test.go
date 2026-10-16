@@ -99,6 +99,7 @@ func TestReleaseRegistrationAndPreparationMySQL(t *testing.T) {
 	success := "success"
 	fake := &fakeBuilds{run: githubbuild.Run{ID: 12, Attempt: 2, Ref: "main", Commit: strings.Repeat("a", 40), Status: "completed", Conclusion: &success, Event: "workflow_dispatch"}}
 	s.github = fake
+	centralTestConfig(t, s)
 	router := s.Router()
 	password := "synthetic-long-passphrase"
 	check(t, call(router, nil, "POST", "/api/v1/bootstrap", map[string]string{"username": "owner", "email": "owner@example.com", "password": password}, map[string]string{"X-Bootstrap-Token": cfg.BootstrapToken}), 201)
@@ -109,7 +110,7 @@ func TestReleaseRegistrationAndPreparationMySQL(t *testing.T) {
 	check(t, call(router, viewer, "POST", "/api/v1/release-settings/keys", map[string]string{"public_key": "invalid"}, nil), 403)
 	check(t, call(router, viewer, "POST", "/api/v1/releases/ci-12-2/prepare-admin", map[string]string{"host_id": "control-host", "batch": "invalid"}, nil), 403)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
-	m := release.Manifest{Version: 1, ID: "ci-12-2", Build: release.Build{Repository: "example/tooling", Workflow: "build.yml", Ref: "refs/heads/main", SourceCommit: fake.run.Commit, RunID: 12, RunAttempt: 2}, Images: []release.Image{{Service: "admin-api", Platform: "linux/arm64", Reference: "example/api@sha256:" + strings.Repeat("a", 64)}, {Service: "admin-web", Platform: "linux/arm64", Reference: "example/web@sha256:" + strings.Repeat("b", 64)}}}
+	m := release.Manifest{Version: 1, ID: "ci-12-2", Build: release.Build{Repository: "example/tooling", Workflow: "build.yml", Ref: "refs/heads/main", SourceCommit: fake.run.Commit, RunID: 12, RunAttempt: 2}, Images: []release.Image{{Service: "admin-api", Platform: "linux/arm64", Reference: "ghcr.io/example/api@sha256:" + strings.Repeat("a", 64)}, {Service: "admin-web", Platform: "linux/arm64", Reference: "ghcr.io/example/web@sha256:" + strings.Repeat("b", 64)}}}
 	fake.signed, _ = release.Sign(m, key)
 	register := func() int {
 		return call(router, owner, "POST", "/api/v1/builds/12/register", map[string]int{"attempt": 2}, nil).Code
@@ -150,7 +151,7 @@ func TestReleaseRegistrationAndPreparationMySQL(t *testing.T) {
 	}
 	modified := m
 	modified.Images = append([]release.Image(nil), m.Images...)
-	modified.Images[0].Reference = "example/api@sha256:" + strings.Repeat("c", 64)
+	modified.Images[0].Reference = "ghcr.io/example/api@sha256:" + strings.Repeat("c", 64)
 	fake.signed, _ = release.Sign(modified, key)
 	if register() != 409 {
 		t.Fatal("immutable registration overwritten")
@@ -173,7 +174,7 @@ func TestReleaseRegistrationAndPreparationMySQL(t *testing.T) {
 	for _, image := range m.Images {
 		id := "control-" + image.Service
 		check(t, call(router, owner, "POST", "/api/v1/services", control.Service{ID: id, HostID: "control-host", Image: image.Reference, ControlPlane: true, ControlKind: image.Service, Platform: image.Platform}, nil), 200)
-		observations = append(observations, control.Observation{Service: id, Image: image.Reference, ImageID: "sha256:" + strings.Repeat("f", 64), Platform: "linux/arm64", Capabilities: []string{"image.prepare.v1"}, Healthy: true})
+		observations = append(observations, control.Observation{Service: id, Image: image.Reference, ImageID: "sha256:" + strings.Repeat("f", 64), Platform: "linux/arm64", Capabilities: []string{"image.archive.v1", "image.prepare.v1"}, Healthy: true})
 	}
 	heartbeat := func(boot string) {
 		check(t, call(router, nil, "POST", "/agent/v1/heartbeat", control.Heartbeat{Version: 1, BootID: boot, Observations: observations}, headers), 200)
@@ -220,6 +221,7 @@ func TestReleaseRegistrationAndPreparationMySQL(t *testing.T) {
 		t.Fatal("duplicate preparation audit")
 	}
 	commands := func() []control.Command {
+		centralTestArchives(t, s, "sha256:"+strings.Repeat("e", 64))
 		t.Helper()
 		w := call(router, nil, "GET", "/agent/v1/commands", nil, headers)
 		check(t, w, 200)

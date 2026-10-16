@@ -50,6 +50,9 @@ func (s *Server) taskAuthority(tx *gorm.DB, t Task) error {
 	if !s.publicationActor(tx, t.RequestedBy, "ops.write") {
 		return errConflict
 	}
+	if t.Action == "upgrade-agent" && !s.publicationActor(tx, t.RequestedBy, "build.read") {
+		return errConflict
+	}
 	if t.Action == "configure" && !s.publicationActor(tx, t.RequestedBy, "config.write") {
 		return errConflict
 	}

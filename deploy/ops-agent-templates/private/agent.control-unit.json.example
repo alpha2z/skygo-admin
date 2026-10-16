@@ -33,11 +33,25 @@
       "health_url": "http://127.0.0.1:18390/healthz",
       "sync_image_env": true,
       "allow_logs": false
+    },
+    {
+      "id": "ops-agent",
+      "compose_file": "/opt/skygo-admin/ops-agent/compose.yaml",
+      "env_file": "/opt/skygo-admin/ops-agent/.env",
+      "project": "skygo-ops-agent",
+      "compose_service": "ops-agent",
+      "image_variable": "OPS_AGENT_IMAGE",
+      "allowed_images": [
+        "ghcr.io/alpha2z/skygo-admin/ops-agent"
+      ],
+      "sync_image_env": true
     }
   ],
   "control_unit": {
     "id": "management",
     "api": "admin-api",
     "web": "admin-web"
-  }
+  },
+  "self_service": "ops-agent",
+  "updater_socket": "/var/lib/skygo-admin/updater/updater.sock"
 }

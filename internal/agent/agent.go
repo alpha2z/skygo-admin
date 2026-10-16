@@ -42,6 +42,8 @@ type LocalService struct {
 	AllowLogs            bool     `json:"allow_logs"`
 }
 type Config struct {
+	UpdaterSocket        string                                                     `json:"updater_socket,omitempty"`
+	SelfService          string                                                     `json:"self_service,omitempty"`
 	RegistryPullDisabled bool                                                       `json:"registry_pull_disabled,omitempty"`
 	Plugins              []PluginConfig                                             `json:"plugins,omitempty"`
 	Guard                func(context.Context, LocalService, control.Command) error `json:"-"`
@@ -137,6 +139,19 @@ func New(c Config, d Driver) (*Agent, error) {
 			}
 		}
 		seen[s.ID] = true
+	}
+	if (c.UpdaterSocket == "") != (c.SelfService == "") || (c.UpdaterSocket != "" && (!filepath.IsAbs(c.UpdaterSocket) || !seen[c.SelfService])) {
+		return nil, errors.New("invalid Agent updater configuration")
+	}
+	if c.SelfService != "" {
+		if c.ControlUnit != nil && (c.ControlUnit.API == c.SelfService || c.ControlUnit.Web == c.SelfService) {
+			return nil, errors.New("Agent must be outside the API/Web recovery unit")
+		}
+		for _, s := range c.Services {
+			if s.ID == c.SelfService && (!s.SyncImageEnv || s.ObservationOnly) {
+				return nil, errors.New("Agent updater requires writable image environment")
+			}
+		}
 	}
 	if err := validateLocalUnit(c); err != nil {
 		return nil, err
@@ -243,6 +258,10 @@ func (a *Agent) run(ctx context.Context) {
 							}
 						}
 					}
+					if s.ID == a.cfg.SelfService && a.updaterAvailable(ctx) {
+						o.Capabilities = append(o.Capabilities, "agent.self-update.v1")
+						o.ControlKind = "ops-agent"
+					}
 					a.decorateUnit(s, &o)
 					a.decorateWorkflow(s, &o)
 					observations = append(observations, o)
@@ -289,6 +308,12 @@ func (a *Agent) Handle(ctx context.Context, e control.Envelope) control.Result {
 	cmd, err := control.Verify(e, a.key, a.cfg.HostID)
 	if err != nil {
 		return control.Result{Status: "failed", Code: "COMMAND_REJECTED"}
+	}
+	if cmd.Action == "upgrade-agent" {
+		return a.handleSelfUpdate(ctx, e, cmd)
+	}
+	if cmd.Service == a.cfg.SelfService && cmd.Action != "health" && cmd.Action != "logs" && cmd.Action != "prepare-image" {
+		return control.Result{ID: cmd.ID, Status: "failed", Code: "AGENT_SELF_UPDATE_REQUIRED"}
 	}
 	if cmd.Action == "control-unit" {
 		return a.handleUnit(ctx, e, cmd)

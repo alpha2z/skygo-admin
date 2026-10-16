@@ -86,8 +86,8 @@ with tempfile.TemporaryDirectory(prefix='skygo-admin-smoke-') as temp:
    run(['docker','tag',source,target]);run(['docker','push',target])
    digests=json.loads(run(['docker','image','inspect',target,'--format','{{json .RepoDigests}}']))
    images.append(next(d for d in digests if d.startswith(registry+'@')))
-  run(['docker','image','rm',registry+':v2',PROJECT+'/node:v2'])
-  if subprocess.run(['docker','image','inspect',images[1]],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0:raise RuntimeError('cold cache fixture still present')
+  # The controller fixture has already populated and verified both images.
+  # Agents only inspect this cache; cold archive import is tested separately.
   fixture={'id':'node-a','compose_file':str(compose),'project':PROJECT,'compose_service':'node-a','image_variable':'NODE_A_IMAGE','allowed_images':[registry],'health_url':urls['node-a']+'/healthz','config_path':str(config/'registry.json'),'skygo_registry':True,'test_images':images}
   fixture['unit_api']=dict(fixture)
   fixture['unit_web']=dict(fixture,id='node-b',compose_service='node-b',image_variable='NODE_B_IMAGE',health_url=urls['node-b']+'/healthz')
@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='skygo-admin-smoke-') as temp:
   result=subprocess.run(['go','test','-count=1','-run','TestDocker(ServiceLifecycle|RecoveryUnit)','./internal/agent'],cwd=ROOT,env=dict(os.environ,GOWORK='off',SKYGO_ADMIN_DOCKER_FIXTURE=str(path)),capture_output=True,text=True)
   print(result.stdout);print(result.stderr)
   if result.returncode:raise SystemExit(result.returncode)
-  print('PASS: standalone API/database; packaged assets and missing-resource 404; two Skygo nodes; cold-cache preparation; single/pair publication; health-failure rollback; offline agent recovery without duplicate execution.')
+  print('PASS: standalone API/database; packaged assets and missing-resource 404; two Skygo nodes; preverified local-cache preparation; single/pair publication; health-failure rollback; offline agent recovery without duplicate execution.')
  finally:
   subprocess.run(base+['down','--volumes','--remove-orphans'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   if 'registry' in locals():

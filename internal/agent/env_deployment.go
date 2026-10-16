@@ -90,6 +90,12 @@ func (a *Agent) handleEnvDeployment(ctx context.Context, e control.Envelope, c c
 		if err != nil || (o.Running && !o.Healthy) || o.ImageID != c.PreviousImageID || time.Now().After(c.ExpiresAt) {
 			return finish(control.Result{ID: c.ID, Status: "failed", Code: "ENV_SCOPE_CHANGED"})
 		}
+		if _, ok := a.driver.(Docker); ok {
+			previous, err := inspectImage(work, c.PreviousImageID)
+			if err != nil || previous.ID != c.PreviousImageID {
+				return finish(control.Result{ID: c.ID, Status: "failed", Code: "ROLLBACK_IMAGE_UNAVAILABLE"})
+			}
+		}
 		// Cache-only preparation precedes the journaled service mutation.
 		prepared := a.driver.Execute(work, s, control.Command{ID: c.ID, Action: "prepare-image", Image: c.Image, Platform: o.Platform})
 		if prepared.Status != "succeeded" {

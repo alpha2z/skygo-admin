@@ -96,7 +96,7 @@ func (s *Server) releaseSettings(c *gin.Context) {
 	}
 	manage, _ := s.auth.Enforce(c.GetString("admin_role"), "admin.manage")
 	build, _ := s.auth.Enforce(c.GetString("admin_role"), "build.write")
-	out := gin.H{"keys": keys, "can_add_key": manage && build, "github_configured": s.github != nil, "registry_mode": "agent-local", "key_count": len(keys)}
+	out := gin.H{"keys": keys, "can_add_key": manage && build, "github_configured": s.github != nil, "registry_mode": "unconfigured", "key_count": len(keys)}
 	if s.distribution != nil {
 		out["registry_mode"] = "central-ghcr"
 	}

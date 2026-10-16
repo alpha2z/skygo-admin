@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "directory": "/var/lib/skygo-admin/distribution",
+  "max_bytes": 68719476736,
+  "username": "example-operator",
+  "token_file": "/run/private/registry-token",
+  "packages": [
+    "alpha2z/skygo-admin/admin-api",
+    "alpha2z/skygo-admin/admin-web",
+    "alpha2z/skygo-admin/ops-agent"
+  ]
+}

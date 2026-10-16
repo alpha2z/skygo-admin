@@ -1,4 +1,4 @@
-# Optional override. Provision the private config and token outside the checkout.
+# Central distribution override for installations without built-in cache mounts. Provision the private config and token outside the checkout.
 services:
   admin-api:
     environment:

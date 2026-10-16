@@ -64,7 +64,7 @@ case "$component" in
     files='README.md admin.env.example generate-keys.py
 private/management-dsn.example private/jwt.example private/bootstrap.example
 private/signing.example private/signing.pub.example private/build-public.example
-private/github.json.example private/github-read-token.example private/smtp-password.example' ;;
+private/github.json.example private/github-read-token.example private/smtp-password.example private/distribution.json.example' ;;
   admin-web)
     files='README.md .env.example compose.yaml nginx.conf.template start.sh update.sh' ;;
   ops-agent)

@@ -130,10 +130,11 @@ transaction details.
    Uncertain results keep the service locked until evidence or operator
    reconciliation resolves them.
 
-Images are distributed from your approved container registry to agents by digest;
-registry credentials stay on each host. This version does not upload image
-archives through the management API. The GitHub workflow produces downloadable
-image artifacts; load/publish them through your own release process.
+Images are downloaded and verified by Admin, then delivered as authenticated,
+signed archives to Agents. Registry credentials exist only on the Admin host.
+Agents import locally and never pull or build images. Configure central distribution
+before image preparation or publication; see [distribution](docs/distribution.md).
+Compose Agents can update through the independent [update worker](docs/agent-update.md).
 
 Configuration versions contain **non-secret JSON**. For `skygo`, submit an array
 of `{ "nodeId": "node-a", "address": "node-a:19001" }` entries; the API creates
@@ -158,7 +159,7 @@ See [API](docs/api.md), [architecture](docs/architecture.md),
 [example nodes](examples/nodes/README.md), and [verification](docs/verification.md).
 Licensed under Apache-2.0 with retained third-party notices.
 
-镜像分发、续传历史、安全清理和发布配置回写见 [schema v4 说明](docs/distribution.md)。本地构建的默认直拉模式保持可用，新能力须显式配置。
+镜像分发、续传历史、安全清理和发布配置回写见 [schema v4 说明](docs/distribution.md)。镜像准备和发布必须配置集中分发；Agent 不再直拉镜像。
 
 Management self-update / 管理端自更新：[System update](docs/system-update.md).
 

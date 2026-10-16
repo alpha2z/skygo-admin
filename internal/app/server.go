@@ -222,7 +222,7 @@ func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		switch c.Request.URL.Path {
-		case "/", "/index.html", "/locale.js", "/distribution.js", "/publications.js", "/releases.js", "/app.js", "/styles.css":
+		case "/", "/agent-updates.js", "/index.html", "/locale.js", "/distribution.js", "/publications.js", "/releases.js", "/app.js", "/styles.css":
 			c.Header("Cache-Control", "no-store")
 		}
 		c.Next()
@@ -290,6 +290,8 @@ func (s *Server) Router() *gin.Engine {
 	a.GET("/releases/:id/admin-preparation", s.require("ops.read"), s.require("build.read"), s.adminPreparation)
 	a.POST("/releases/:id/prepare-admin", s.require("ops.write"), s.require("build.read"), s.prepareAdminImages)
 	a.GET("/publication-candidates", s.require("ops.read"), s.require("build.read"), s.publicationCandidates)
+	a.POST("/agent-updates/prepare", s.require("ops.write"), s.require("build.read"), s.prepareAgentUpdate)
+	a.POST("/agent-updates", s.require("ops.write"), s.require("build.read"), s.createAgentUpdate)
 	a.POST("/publication-preparation", s.require("ops.write"), s.require("build.read"), s.prepareSelection)
 	a.GET("/publications", s.require("ops.read"), s.publications)
 	a.GET("/publications/:id", s.require("ops.read"), s.publicationDetail)
@@ -317,12 +319,13 @@ func (s *Server) Router() *gin.Engine {
 	agents.POST("/image-deliveries/:id/attempts", s.beginDeliveryAttempt)
 	agents.POST("/image-deliveries/:id/progress", s.deliveryProgress)
 	agents.POST("/heartbeat", s.heartbeat)
+	agents.GET("/self-update/:id/confirmation", s.agentUpdateConfirmation)
 	agents.GET("/commands", s.commands)
 	agents.POST("/results", s.result)
 	s.mountExtensions(r, a)
 	s.mountPluginInventories(a)
 	if s.cfg.WebFS != nil {
-		for _, file := range []string{"index.html", "locale.js", "distribution.js", "publications.js", "releases.js", "app.js", "styles.css"} {
+		for _, file := range []string{"index.html", "agent-updates.js", "locale.js", "distribution.js", "publications.js", "releases.js", "app.js", "styles.css"} {
 			name := file
 			url := "/" + file
 			if file == "index.html" {
@@ -339,6 +342,7 @@ func (s *Server) Router() *gin.Engine {
 		}
 	} else {
 		r.StaticFile("/", s.cfg.WebRoot+"/index.html")
+		r.StaticFile("/agent-updates.js", s.cfg.WebRoot+"/agent-updates.js")
 		r.StaticFile("/locale.js", s.cfg.WebRoot+"/locale.js")
 		r.StaticFile("/distribution.js", s.cfg.WebRoot+"/distribution.js")
 		r.StaticFile("/publications.js", s.cfg.WebRoot+"/publications.js")

@@ -10,7 +10,8 @@ flowchart LR
   API --> DB[(Management MySQL)]
   Agent[ops-agent / Skygo app] -->|authenticated polling and results| API
   Agent -->|local approved inventory| Docker[Docker Compose services]
-  Registry[Container registry] -->|digest-pinned image| Agent
+  Registry[Container registry] -->|verified image download| API
+  API -->|signed archive over authenticated HTTPS| Agent
   Docker --> Nodes[Optional Skygo nodes]
 ```
 

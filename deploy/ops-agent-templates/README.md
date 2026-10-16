@@ -36,7 +36,7 @@ chmod 600 private/agent.json private/agent-token private/signing.pub
 | 参数 | 示例与说明 |
 | --- | --- |
 | COMPOSE_PROJECT_NAME | `skygo-ops-agent`，只管理本目录Agent容器。 |
-| OPS_AGENT_IMAGE | `ghcr.io/alpha2z/skygo-admin/ops-agent:latest`，匿名拉取。 |
+| OPS_AGENT_IMAGE | 镜像引用示例；先由 Admin 集中准备并离线导入，启动脚本不拉取。 |
 | MANAGED_DEPLOYMENTS_DIR | `/opt/skygo-admin`，实际被授权服务部署目录的绝对父路径。以相同绝对路径挂载到Agent，供Docker Compose读取配置与回写镜像变量。不要使用 `/` 作为范围。 |
 
 模板使用Linux host网络和Docker Socket；Agent可以操作本机Docker，远端动作仍须通过签名和
@@ -92,3 +92,17 @@ docker compose logs --tail 50
 
 启动后在后台确认主机心跳、能力和服务健康；容器running不代表登记成功。
 对首次服务动作使用非破坏性健康检查，并走既有独立审批流程。
+
+## 集中分发与自升级
+
+Agent 不再配置 Registry 登录凭据。`update.sh` 仅重建已导入的本地镜像；常规升级使用
+后台 **Agent 升级**。不得使用更新脚本替代后台任务的审批和回执核对。
+
+采用 `private/agent.control-unit.json.example`，按实际安装路径调整 `self_service`、
+`updater_socket` 和 Agent 的 Compose/环境文件。将目录安装在 `MANAGED_DEPLOYMENTS_DIR`
+内，确保 Agent 与更新执行器看到相同绝对路径。登记 `control_kind=ops-agent` 的服务。
+`OPS_UPDATER_IMAGE` 必须设置为已导入的过渡版本不可变引用，与 `OPS_AGENT_IMAGE` 分开。
+执行器不会随 Agent 自升级更新。原有 `state/` 与身份文件必须保留。
+
+`DOCKER_ROOT_DIR` 必须等于 Docker daemon 的实际存储根目录；以同路径只读挂载。
+只支持同机 Docker daemon。详见 [升级与恢复](../../docs/agent-update.md)。

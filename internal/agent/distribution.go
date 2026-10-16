@@ -90,7 +90,7 @@ func (a *Agent) execute(ctx context.Context, s LocalService, c control.Command) 
 		_ = a.request(work, "POST", "/image-deliveries/"+c.DeliveryID+"/progress", control.Progress{TaskID: c.ID, Attempt: attempt.Attempt, Sequence: sequence, Phase: phase, Bytes: bytes, Total: total, Reused: reused, Downloaded: &downloaded, Reason: reason}, nil)
 	}
 	if c.Archive == nil {
-		report("registry-pull", 0, 0, "", true)
+		report("local-verification", 0, 0, "", true)
 		return a.driver.Execute(ctx, s, c)
 	}
 	result := control.Result{ID: c.ID, Status: "failed", Code: "ARCHIVE_REJECTED"}
@@ -156,6 +156,14 @@ func (a *Agent) executeCleanup(ctx context.Context, s LocalService, c control.Co
 		b, err := os.ReadFile(path)
 		var j unitJournal
 		if err != nil || json.Unmarshal(b, &j) != nil || j.Phase != "terminal" {
+			return r
+		}
+	}
+	updates, _ := filepath.Glob(filepath.Join(a.cfg.StateDir, "updater", "*.update.json"))
+	for _, path := range updates {
+		var j updateJournal
+		raw, err := os.ReadFile(path)
+		if err != nil || json.Unmarshal(raw, &j) != nil || j.Phase != "terminal" || !j.Delivered {
 			return r
 		}
 	}

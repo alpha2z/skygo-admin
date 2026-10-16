@@ -99,6 +99,12 @@ func (s *Server) loadDistribution() error {
 	return nil
 }
 func (s *Server) queuePreparation(tx *gorm.DB, t *Task, releaseID string, h Host) *gorm.DB {
+	if s.distribution == nil {
+		return &gorm.DB{Error: publicationError("CENTRAL_DISTRIBUTION_REQUIRED", "Configure Admin image distribution before preparing images.")}
+	}
+	if updateHostBlocked(tx, h.ID, "") {
+		return &gorm.DB{Error: publicationError("AGENT_UPDATE_BLOCKING", "Resolve the active Agent update first.")}
+	}
 	var c control.Command
 	if json.Unmarshal([]byte(t.Payload), &c) != nil {
 		return &gorm.DB{Error: errConflict}
@@ -448,6 +454,12 @@ func (s *Server) retryDelivery(c *gin.Context) {
 		var h Host
 		if tx.First(&d, "id = ?", c.Param("id")).Error != nil || tx.First(&old, "id = ?", d.TaskID).Error != nil {
 			return nil, errConflict
+		}
+		if s.distribution == nil || d.Mode != "archive" {
+			return nil, publicationError("CENTRAL_DISTRIBUTION_REQUIRED", "Create a new centrally distributed image preparation.")
+		}
+		if updateHostBlocked(tx, d.HostID, "") {
+			return nil, publicationError("AGENT_UPDATE_BLOCKING", "Resolve the active Agent update first.")
 		}
 		if old.Status == "queued" || old.Status == "dispatched" || old.Status == "preparing" {
 			return unchangedMutation{d}, nil

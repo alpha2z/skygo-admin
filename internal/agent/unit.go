@@ -407,6 +407,6 @@ func (Docker) UnitStart(ctx context.Context, s LocalService, image string) error
 		}
 		image = cached.ID
 	}
-	_, err := run(ctx, imageEnv(s, image), append(compose(s), "up", "-d", "--no-deps", "--pull", "never", s.ComposeService)...)
+	_, err := run(ctx, imageEnv(s, image), append(compose(s), "up", "-d", "--no-deps", "--pull", "never", "--no-build", s.ComposeService)...)
 	return err
 }

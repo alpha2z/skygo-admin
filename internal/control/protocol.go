@@ -30,7 +30,15 @@ type Service struct {
 	Platform     string   `json:"platform,omitempty"`
 	ControlPlane bool     `json:"control_plane"`
 }
+type AgentUpdate struct {
+	PreparationID string `json:"preparation_id"`
+	ImageID       string `json:"image_id"`
+	BootID        string `json:"boot_id"`
+	ReleaseID     string `json:"release_id"`
+}
+
 type Command struct {
+	AgentUpdate           *AgentUpdate    `json:"agent_update,omitempty"`
 	PluginRevision        string          `json:"plugin_revision,omitempty"`
 	WorkflowScopeRevision string          `json:"workflow_scope_revision,omitempty"`
 	WorkflowImage         string          `json:"workflow_image,omitempty"`
@@ -117,7 +125,7 @@ func (c Command) Validate() error {
 	if c.DeliveryID != "" && (c.Action != "prepare-image" || !Identifier.MatchString(c.DeliveryID)) {
 		return errors.New("invalid delivery identity")
 	}
-	if c.Action != "prepare-image" && c.Platform != "" {
+	if c.Action != "prepare-image" && c.Action != "upgrade-agent" && c.Platform != "" {
 		return errors.New("unexpected platform")
 	}
 	if c.Action != "control-unit" && c.Unit != nil {
@@ -126,7 +134,14 @@ func (c Command) Validate() error {
 	if c.Action != "extension" && (c.Extension != "" || len(c.Payload) > 0) {
 		return errors.New("unexpected extension payload")
 	}
+	if c.AgentUpdate != nil && c.Action != "upgrade-agent" {
+		return errors.New("unexpected Agent update")
+	}
 	switch c.Action {
+	case "upgrade-agent":
+		if c.AgentUpdate == nil || !Identifier.MatchString(c.AgentUpdate.PreparationID) || !ImageIdentity(c.AgentUpdate.ImageID) || !Identifier.MatchString(c.AgentUpdate.BootID) || !Identifier.MatchString(c.AgentUpdate.ReleaseID) || !ImageIdentity(c.PreviousImageID) || len(c.InventoryRevision) != 64 || !Image.MatchString(c.Image) || len(c.Config) > 0 || c.ConfigHash != "" || (c.Platform != "linux/amd64" && c.Platform != "linux/arm64") {
+			return errors.New("invalid Agent update")
+		}
 	case "extension":
 		if !Identifier.MatchString(c.Extension) || len(c.Payload) == 0 || len(c.Payload) > 256<<10 || !json.Valid(c.Payload) || c.Image != "" || len(c.Config) > 0 || c.ConfigHash != "" {
 			return errors.New("invalid extension command")

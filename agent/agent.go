@@ -13,3 +13,8 @@ type Docker = agent.Docker
 var New = agent.New
 
 type ExtensionAction = agent.ExtensionAction
+
+// Updater is the independently supervised Compose Agent replacement worker.
+type Updater = agent.Updater
+
+var NewUpdater = agent.NewUpdater

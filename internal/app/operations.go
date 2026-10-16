@@ -244,7 +244,7 @@ func (s *Server) createTask(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if req.Action == "prepare-image" || req.Action == "image-cleanup" {
+	if req.Action == "upgrade-agent" || req.Action == "prepare-image" || req.Action == "image-cleanup" {
 		c.Status(400)
 		return
 	}
@@ -329,6 +329,12 @@ func (s *Server) createTask(c *gin.Context) {
 					}
 				}
 			}
+		}
+		if def.ControlKind == "ops-agent" && req.Action != "health" && req.Action != "logs" {
+			return nil, publicationError("AGENT_SELF_UPDATE_REQUIRED", "Use the dedicated Agent update operation.")
+		}
+		if err := s.centralPolicy(tx, cmd); err != nil {
+			return nil, err
 		}
 		if req.Action == "extension" {
 			cmd.Extension = req.Extension
@@ -429,6 +435,15 @@ func (s *Server) authorizeTask(c *gin.Context, tx *gorm.DB, id string) (any, err
 		}
 	}
 	if err := s.checkExtensionTask(tx, payload, task.RequestedBy, approvalIdentity(task.SingleConfirmation, uint32(c.GetUint("admin_id")))); err != nil {
+		return nil, err
+	}
+	if updateHostBlocked(tx, task.HostID, task.ID) {
+		return nil, publicationError("AGENT_UPDATE_BLOCKING", "Resolve the active Agent update first.")
+	}
+	if err := s.centralPolicy(tx, payload); err != nil {
+		return nil, err
+	}
+	if err := s.checkAgentUpdate(tx, payload); err != nil {
 		return nil, err
 	}
 	if payload.SyncImageEnv {
@@ -699,6 +714,9 @@ func (s *Server) commands(c *gin.Context) {
 			if json.Unmarshal([]byte(t.Payload), &command) != nil {
 				return errConflict
 			}
+			if t.Status == "queued" && updateHostBlocked(tx, t.HostID, t.ID) {
+				continue
+			}
 			if t.PublicationID != "" && t.Status == "queued" {
 				var p Publication
 				if tx.First(&p, "id = ?", t.PublicationID).Error != nil {
@@ -757,6 +775,18 @@ func (s *Server) commands(c *gin.Context) {
 					policyErr = s.workflowDispatch(tx, t)
 				}
 				code := "EXTENSION_AUTHORIZATION_CHANGED"
+				if policyErr == nil {
+					policyErr = s.centralPolicy(tx, command)
+					if policyErr != nil {
+						code = "CENTRAL_DISTRIBUTION_REQUIRED"
+					}
+				}
+				if policyErr == nil {
+					policyErr = s.checkAgentUpdate(tx, command)
+					if policyErr != nil {
+						code = "AGENT_UPDATE_SCOPE_CHANGED"
+					}
+				}
 				if policyErr == nil && s.cfg.TaskPolicy != nil {
 					policyErr = s.cfg.TaskPolicy(c.Request.Context(), tx, command)
 					code = "COMPOSITION_POLICY_REJECTED"
@@ -769,6 +799,9 @@ func (s *Server) commands(c *gin.Context) {
 					t.Result = string(result)
 					if tx.Save(&t).Error != nil || tx.Model(&ServiceRecord{}).Where("busy_task = ?", t.ID).Update("busy_task", "").Error != nil {
 						return errConflict
+					}
+					if err := s.finishDelivery(tx, t, control.Result{ID: t.ID, Status: "failed", Code: code}); err != nil {
+						return err
 					}
 					if s.appendAudit(tx, 0, "task.policy.rejected", t.ID, nil) != nil {
 						return errConflict
@@ -835,7 +868,7 @@ func (s *Server) result(c *gin.Context) {
 			if t.PublicationID == "" || !validUnitResult(command, req) {
 				return errConflict
 			}
-		} else if req.Status == "rolled_back" || len(req.Unit) > 0 {
+		} else if (req.Status == "rolled_back" && t.Action != "upgrade-agent") || len(req.Unit) > 0 {
 			return errConflict
 		}
 		if req.Status == "succeeded" {
@@ -846,13 +879,37 @@ func (s *Server) result(c *gin.Context) {
 				return errConflict
 			}
 		}
+		if t.Action == "upgrade-agent" && (req.Status == "succeeded" || req.Status == "rolled_back") {
+			if command.AgentUpdate == nil {
+				return errConflict
+			}
+			expected := command.PreviousImageID
+			if req.Status == "succeeded" {
+				expected = command.AgentUpdate.ImageID
+				if req.Image != command.Image || req.ImageID != expected || req.Platform != command.Platform || !req.Healthy {
+					return errConflict
+				}
+			}
+			var host Host
+			var observations []control.Observation
+			if tx.First(&host, "id = ?", t.HostID).Error != nil || host.BootID == command.AgentUpdate.BootID || time.Since(host.LastSeen) > time.Minute || json.Unmarshal([]byte(host.Observations), &observations) != nil {
+				return errConflict
+			}
+			verified := false
+			for _, o := range observations {
+				verified = verified || (o.Service == command.Service && o.ImageID == expected && o.Healthy && o.Running)
+			}
+			if !verified {
+				return errConflict
+			}
+		}
 		if req.Status == "succeeded" && t.Action == "image-cleanup" {
 			if command.Cleanup == nil || req.Code != "IMAGE_CLEANED" || req.Image != command.Image || req.ImageID != command.Cleanup.ImageID || req.Platform != command.Cleanup.Platform {
 				return errConflict
 			}
 		}
 		if req.Status == "succeeded" && t.Action == "prepare-image" {
-			if req.Image != command.Image || req.Platform != command.Platform || !validRuntimeImageID(req.ImageID) {
+			if req.Image != command.Image || req.Platform != command.Platform || !validRuntimeImageID(req.ImageID) || (command.Archive != nil && req.ImageID != command.Archive.ImageID) {
 				return errConflict
 			}
 		}

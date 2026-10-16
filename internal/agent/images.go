@@ -53,18 +53,7 @@ func prepareImage(ctx context.Context, s LocalService, c control.Command) contro
 	}
 	image, err := preparedImage(ctx, s, c.Image)
 	if err != nil {
-		if s.RegistryPullDisabled {
-			r.Code = "CENTRAL_DISTRIBUTION_REQUIRED"
-			return r
-		}
-		if _, err = run(ctx, os.Environ(), "pull", "--platform", c.Platform, c.Image); err != nil {
-			r.Code = "IMAGE_PULL_FAILED"
-			return r
-		}
-		image, err = inspectImage(ctx, c.Image)
-	}
-	if err != nil {
-		r.Code = "IMAGE_INSPECT_FAILED"
+		r.Code = "CENTRAL_DISTRIBUTION_REQUIRED"
 		return r
 	}
 	if !image.matches(c.Image, c.Platform) && !preparedEvidence(s, c.Image, image.ID, c.Platform) {

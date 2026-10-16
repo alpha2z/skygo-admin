@@ -276,6 +276,19 @@ func (s *Server) authorizeWorkflow(c *gin.Context, tx *gorm.DB, w Workflow, prov
 }
 
 func (s *Server) lockWorkflow(tx *gorm.DB, w Workflow, p WorkflowPlan) error {
+	for _, target := range p.Targets {
+		if updateHostBlocked(tx, target.Host, "") {
+			return publicationError("AGENT_UPDATE_BLOCKING", "Resolve the active Agent update first.")
+		}
+	}
+	if s.distribution == nil {
+		for _, step := range p.Steps {
+			switch step.Command.Action {
+			case "prepare-image", "deploy", "rollback":
+				return publicationError("CENTRAL_DISTRIBUTION_REQUIRED", "Configure Admin image distribution first.")
+			}
+		}
+	}
 	resources := []string{"group:" + p.Group}
 	for _, t := range p.Targets {
 		var r ServiceRecord

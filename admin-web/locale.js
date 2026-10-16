@@ -2,6 +2,19 @@
 'use strict';
 const AdminLocale = (() => {
  const messages = {
+  "Agent update": {"en": "Agent update", "zh-CN": "Agent 升级", "ja": "Agent の更新"},
+  "Prepare Agent image": {"en": "Prepare Agent image", "zh-CN": "准备 Agent 镜像", "ja": "Agent イメージを準備"},
+  "Install the transitional Agent and independent updater first.": {"en": "Install the transitional Agent and independent updater first.", "zh-CN": "请先安装过渡版本 Agent 和独立升级执行器。", "ja": "移行用 Agent と独立更新ワーカーを先にインストールしてください。"},
+  "Refresh to observe progress. Agent updates and API/Web updates run separately.": {"en": "Refresh to observe progress. Agent updates and API/Web updates run separately.", "zh-CN": "刷新查看进度。Agent 升级与 API/Web 升级分别执行。", "ja": "更新して進捗を確認してください。Agent と API/Web の更新は別々に実行します。"},
+  "AGENT_UPDATE_HANDOFF": {"en": "AGENT_UPDATE_HANDOFF", "zh-CN": "已交接升级执行器", "ja": "更新ワーカーへ引き渡し済み"},
+  "AGENT_UPDATE_RESTARTING": {"en": "AGENT_UPDATE_RESTARTING", "zh-CN": "正在替换并重启", "ja": "置換して再起動中"},
+  "AGENT_UPDATE_CONFIRMING": {"en": "AGENT_UPDATE_CONFIRMING", "zh-CN": "等待新 Agent 心跳确认", "ja": "新しい Agent のハートビートを確認中"},
+  "AGENT_UPDATE_ROLLING_BACK": {"en": "AGENT_UPDATE_ROLLING_BACK", "zh-CN": "正在回滚 Agent", "ja": "Agent をロールバック中"},
+  "AGENT_UPDATED": {"en": "AGENT_UPDATED", "zh-CN": "Agent 升级完成", "ja": "Agent 更新完了"},
+  "AGENT_UPDATE_ROLLED_BACK": {"en": "AGENT_UPDATE_ROLLED_BACK", "zh-CN": "已恢复旧 Agent", "ja": "以前の Agent に復元済み"},
+  "AGENT_UPDATE_RECONCILIATION_REQUIRED": {"en": "AGENT_UPDATE_RECONCILIATION_REQUIRED", "zh-CN": "需要核对 Agent 升级状态", "ja": "Agent 更新状態の確認が必要"},
+  "UPDATER_UNAVAILABLE": {"en": "UPDATER_UNAVAILABLE", "zh-CN": "升级执行器暂不可用，等待核对", "ja": "更新ワーカーに接続できません。確認待ち"},
+
   "Single confirmation": {"en": "Single confirmation", "zh-CN": "单人确认", "ja": "単独確認"},
   "Independent approval": {"en": "Independent approval", "zh-CN": "双人审批", "ja": "独立承認"},
   "Confirm execution": {"en": "Confirm execution", "zh-CN": "确认执行", "ja": "実行を確認"},

@@ -10,4 +10,4 @@ if [ ! -d state ]; then
   (umask 077; mkdir state)
 fi
 docker compose --env-file .env -f compose.yaml config --quiet
-exec docker compose --env-file .env -f compose.yaml up -d --no-deps --pull never
+exec docker compose --env-file .env -f compose.yaml up -d --no-deps --pull never --no-build

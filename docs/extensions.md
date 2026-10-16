@@ -89,8 +89,8 @@ to its own build source before using system updates. Trusted signatures alone ar
 insufficient to replace a composition with an unrelated standalone image. All
 candidate, preparation and publication reads reuse this source check.
 
-Keep the API/Web recovery unit and Agent inventory outside the images. Agent
-upgrades remain separate. No self-update path performs database migrations. Legacy
+Keep the API/Web recovery unit and Agent inventory outside the images. Agent upgrades remain separate and use the optional `agent.NewUpdater` component
+under an independent supervisor; see [Agent updates](agent-update.md). No self-update path performs database migrations. Legacy
 signed releases and standalone APIs retain their previous behavior when extensions
 are absent. The optional `UnixSocket` listener is local configuration only; normal
 standalone HTTP deployment remains unchanged.

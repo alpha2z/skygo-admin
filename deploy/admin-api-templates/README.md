@@ -119,3 +119,12 @@ find private -maxdepth 1 -type f -size 0 -print
 零字节必需文件不能用；可选功能未配置时不要设置其 `_FILE` 变量。
 文件内容是单行原始值，不写 `变量名=`，不加引号，不粘贴示例占位文本运行。
 业务扩展专用文件由对应私有扩展提供，本模板不包含它们。
+
+## 集中镜像分发
+
+部署时增加持久化目录到 `/var/lib/skygo-admin/distribution` 的写挂载，并复制
+`private/distribution.json.example` 为私有配置，填写精确包白名单与用户名。
+将只读 GHCR 凭据保存为私有 `registry-token` 文件（0600），设置
+`ADMIN_DISTRIBUTION_CONFIG=/run/private/distribution.json`。不挂载 Docker Socket。
+配置未启用时仍可管理，但不能准备或发布镜像。Token 轮换只修改 Admin 的私有文件；
+Agent 不保存 GHCR 凭据。准备缓存目录时应授予 API 容器运行 UID 写权限。

@@ -48,6 +48,7 @@ func publicationApprovalRecovery(t *testing.T, independent bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	centralTestConfig(t, s)
 	r := s.Router()
 	password := "synthetic-long-passphrase"
 	check(t, call(r, nil, "POST", "/api/v1/bootstrap", map[string]string{"username": "owner", "email": "owner@example.com", "password": password}, map[string]string{"X-Bootstrap-Token": cfg.BootstrapToken}), 201)
@@ -56,7 +57,7 @@ func publicationApprovalRecovery(t *testing.T, independent bool) {
 	approver := signIn(t, s, r, "approver", password)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	db.Create(&BuildTrustKey{ID: control.Digest(pub), PublicKey: base64.StdEncoding.EncodeToString(pub)})
-	image := "example/api@sha256:" + strings.Repeat("b", 64)
+	image := "ghcr.io/example/api@sha256:" + strings.Repeat("b", 64)
 	oldID := "sha256:" + strings.Repeat("a", 64)
 	newID := "sha256:" + strings.Repeat("b", 64)
 	m := release.Manifest{Version: 1, ID: "ci-1-1", Build: release.Build{Repository: "example/tooling", Workflow: "build.yml", Ref: "refs/heads/main", SourceCommit: strings.Repeat("a", 40), RunID: 1, RunAttempt: 1}, Images: []release.Image{{Service: "admin-api", Platform: "linux/arm64", Reference: image}}}
@@ -73,7 +74,7 @@ func publicationApprovalRecovery(t *testing.T, independent bool) {
 		def := control.Service{ID: id, HostID: "host", Image: "example/" + id + "@sha256:" + strings.Repeat("a", 64), ControlPlane: true, ControlKind: "admin-" + id, Platform: "linux/arm64"}
 		b, _ := json.Marshal(def)
 		db.Create(&ServiceRecord{ID: id, Definition: string(b)})
-		observations = append(observations, control.Observation{Service: id, Image: def.Image, ImageID: oldID, Platform: def.Platform, Healthy: true, Running: true, UnitID: "admin", ControlKind: def.ControlKind, InventoryRevision: strings.Repeat("c", 64), Capabilities: []string{"image.prepare.v1", "control.unit.v1"}})
+		observations = append(observations, control.Observation{Service: id, Image: def.Image, ImageID: oldID, Platform: def.Platform, Healthy: true, Running: true, UnitID: "admin", ControlKind: def.ControlKind, InventoryRevision: strings.Repeat("c", 64), Capabilities: []string{"image.archive.v1", "image.prepare.v1", "control.unit.v1"}})
 	}
 	heartbeat := func() {
 		check(t, call(r, nil, "POST", "/agent/v1/heartbeat", control.Heartbeat{Version: 1, BootID: "boot", Observations: observations}, headers), 200)
@@ -103,6 +104,7 @@ func publicationApprovalRecovery(t *testing.T, independent bool) {
 	req := publicationRequest{ID: "publish-a", HostID: "host", ReleaseID: m.ID, Selected: []string{"api"}}
 	check(t, call(r, owner, "POST", "/api/v1/publications", req, nil), 409)
 	check(t, call(r, owner, "POST", "/api/v1/publication-preparation", req, nil), 200)
+	centralTestArchives(t, s, newID)
 	commands := call(r, nil, "GET", "/agent/v1/commands", nil, headers)
 	check(t, commands, 200)
 	var envelopes []control.Envelope
@@ -166,6 +168,9 @@ func publicationApprovalRecovery(t *testing.T, independent bool) {
 	observations[0].ImageID = newID
 	heartbeat()
 	fresh, err := NewServer(cfg, db)
+	if err == nil {
+		fresh.distribution = s.distribution
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +257,7 @@ func publicationApprovalRecovery(t *testing.T, independent bool) {
 	}
 	invalidFields := map[string]any{"request_id": "untrusted-payload", "host_id": "host", "release_id": m.ID, "selected": []string{"api"}, "image": image}
 	check(t, call(r, owner, "POST", "/api/v1/publications", invalidFields, nil), 400)
-	for _, asset := range []string{"/locale.js", "/distribution.js", "/releases.js", "/publications.js", "/app.js", "/styles.css"} {
+	for _, asset := range []string{"/agent-updates.js", "/locale.js", "/distribution.js", "/releases.js", "/publications.js", "/app.js", "/styles.css"} {
 		check(t, call(r, nil, "GET", asset, nil, nil), 200)
 	}
 	check(t, call(r, nil, "GET", "/missing-module.js", nil, nil), 404)

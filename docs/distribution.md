@@ -4,7 +4,7 @@ Single confirmation is the default. Separate approval below applies when
 `ADMIN_INDEPENDENT_APPROVAL_ENABLED=true`; existing requests retain their saved
 policy. See [approval modes and schema v6](approval.md).
 
-Schema v4 adds optional central GHCR distribution, persistent attempt history,
+Schema v4 introduced central GHCR distribution, persistent attempt history,
 reviewed cleanup and local image-variable persistence. Ordinary startup never
 migrates. Image preparation never restarts a container or writes its environment.
 
@@ -26,16 +26,15 @@ immutable digests remain authoritative. A display tag never establishes trust.
 
 The Agent wire protocol remains v1 with explicit optional capabilities:
 `image.archive.v1`, `image.cleanup.v1`, and `image.env.v1`. Unsupported commands
-are not sent to an old Agent. Default installations continue direct Registry
-preparation. Central mode requires the new archive capability and does not silently
-fall back to direct Registry access. API/Web recovery remains independently
+are not sent to an old Agent. All image preparation now requires central configuration and the archive capability.
+No Agent path falls back to direct Registry access. Without distribution configuration,
+Admin remains available for management but rejects image preparation and installation. API/Web recovery remains independently
 approved; automatic build registration still cannot initiate deployment.
 
-## Optional central GHCR distribution
+## Required central GHCR distribution
 
 Set `ADMIN_DISTRIBUTION_CONFIG` to an operator-owned JSON file outside the checkout.
-See [synthetic configuration](../examples/distribution.json). `enabled` defaults
-false. When enabled, configure an absolute cache directory, private Registry token
+See [synthetic configuration](../examples/distribution.json). Set `enabled: true` and configure an absolute cache directory, private Registry token
 file, username and exact GHCR package allowlist. `max_bytes` defaults to 64 GiB
 and permits 8–64 GiB. A single generated archive is limited to 8 GiB. Downloads
 reserve capacity conservatively; insufficient space stops the task, never triggers
@@ -60,14 +59,12 @@ For central import, the Agent must be able to check the Docker daemon's local
 storage filesystem. A containerized Agent on the same Linux host needs the daemon
 root (normally `/var/lib/docker`) mounted read-only at the same path, in addition
 to its Docker Socket and private state directory. Remote-daemon configurations
-without a visible storage filesystem fail closed at the capacity check. Direct
-preparation is unchanged. Do not substitute an unrelated path as disk evidence.
+without a visible storage filesystem fail closed at the capacity check. Direct Registry preparation is no longer supported. Do not substitute an unrelated path as disk evidence.
 
 The UI uses explicit refresh. Attempt records show phase, start/end time,
 processed payload bytes, reused bytes, downloaded payload bytes and safe error or
 resume codes. Unknown totals remain unknown; metadata requests are not counted as
-image payload bytes. Direct Docker pulls report phase/result, not invented byte
-progress. Refresh/re-login preserves delivery and cleanup intent IDs in the URL.
+image payload bytes. Local verification reports its phase without inventing transfer progress. Refresh/re-login preserves delivery and cleanup intent IDs in the URL.
 
 ## Cleanup
 
@@ -131,16 +128,11 @@ release through the provider before a central download; they do not require a
 second public release record. The workflow remains waiting during central
 preparation and never converts a central failure into a direct pull.
 
-Set `registry_pull_disabled: true` in Agent configuration to prohibit Registry
-fallback when a requested image is absent locally. Central archive imports and
-verified local cached images remain usable. This is an operator-side policy;
-keep Registry credentials only on the controller and mount the daemon's storage
-root read-only for archive capacity checks.
+The legacy `registry_pull_disabled` option is accepted for configuration compatibility;
+its value cannot enable Registry access. Agents always reject missing local images
+without a central archive. Queued legacy direct preparations fail durably at dispatch;
+create a new central preparation. Already dispatched or uncertain tasks retain their
+receipts and must be reconciled before upgrading.
 
-A failed cache-only workflow preparation can be retried through its delivery.
-The retry retains the workflow, original authorizations, scope locks and expiry,
-creates a new task attempt, and revalidates the provider. It cannot retry service
-mutations, uncertain commands or expired workflows. Central download failures
-store a terminal failure receipt and release only that child's busy marker.
-Cache capacity must include the conservative 8 GiB reservation plus retained
-archives; an 8 GiB quota alone cannot accommodate a second uncached image.
+Compose Agent updates use the same central archive path followed by a separate,
+approved `upgrade-agent` task. See [Agent updates](agent-update.md).

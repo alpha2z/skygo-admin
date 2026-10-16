@@ -298,8 +298,8 @@ func (s *Server) prepareAdminImages(c *gin.Context) {
 			}
 			raw, _ := json.Marshal(command)
 			task := Task{ID: id, HostID: h.ID, ServiceID: t.Service, Action: command.Action, Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: now, ExpiresAt: command.ExpiresAt}
-			if s.queuePreparation(tx, &task, m.ID, h).Error != nil {
-				return nil, errConflict
+			if err := s.queuePreparation(tx, &task, m.ID, h).Error; err != nil {
+				return nil, err
 			}
 			if tx.Save(&ImagePreparation{ID: preparationID(h.ID, t), TaskID: id, HostBootID: h.BootID}).Error != nil {
 				return nil, errConflict

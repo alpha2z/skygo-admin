@@ -173,16 +173,14 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 		}
 		env = imageEnv(s, c.Image)
 		cached, cacheErr := preparedImage(ctx, s, c.Image)
-		if cacheErr != nil {
-			if _, err := run(ctx, env, "pull", c.Image); err != nil {
-				r.Code = "IMAGE_PULL_FAILED"
-				return r
-			}
+		if cacheErr != nil || (!cached.matches(c.Image, cached.platform()) && !preparedEvidence(s, c.Image, cached.ID, cached.platform())) {
+			r.Code = "CENTRAL_DISTRIBUTION_REQUIRED"
+			return r
 		}
 		if cached.ID != "" {
 			env = imageEnv(s, cached.ID)
 		}
-		args = append(args, "up", "-d", "--no-deps", "--pull", "never", s.ComposeService)
+		args = append(args, "up", "-d", "--no-deps", "--pull", "never", "--no-build", s.ComposeService)
 	case "configure":
 		if s.ConfigPath == "" {
 			r.Code = "CONFIG_NOT_APPROVED"

@@ -172,6 +172,9 @@ func (s *Server) unitInventory(tx *gorm.DB, hostID, executionID string) (Host, [
 }
 func (s *Server) resolvePublication(tx *gorm.DB, req publicationRequest, executionID string) (publicationScope, error) {
 	scope := publicationScope{}
+	if s.distribution == nil {
+		return scope, publicationError("CENTRAL_DISTRIBUTION_REQUIRED", "Configure Admin image distribution before publishing images.")
+	}
 	m, err := s.trustedRelease(tx, req.ReleaseID)
 	if err != nil {
 		return scope, err
