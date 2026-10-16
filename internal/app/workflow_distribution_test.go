@@ -71,4 +71,31 @@ func TestWorkflowPreparationUsesCentralDistributionMySQL(t *testing.T) {
 	if child.Status != "failed" {
 		t.Fatalf("central failure must not fall back to direct pull: %s", child.Status)
 	}
+	if child.Result == "" || child.FinishedAt == nil {
+		t.Fatal("central failure receipt missing")
+	}
+	if err := s.workflowTick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	db.First(&workflow, "id = ?", "central-workflow")
+	if workflow.Status != "blocked" {
+		t.Fatal("failed preparation not blocked")
+	}
+	oldID := child.ID
+	check(t, call(router, owner, "POST", "/api/v1/image-deliveries/"+delivery.ID+"/retry", nil, nil), 200)
+	db.First(&workflow, "id = ?", "central-workflow")
+	if workflow.ChildID == oldID || workflow.Status != "waiting" {
+		t.Fatal("retry did not preserve workflow and attach new attempt")
+	}
+	var retried Task
+	db.First(&retried, "id = ?", workflow.ChildID)
+	if retried.WorkflowID != workflow.ID || retried.Status != "preparing" || retried.ExpiresAt.After(workflow.ExpiresAt) {
+		t.Fatal("retry changed workflow authority or expiry")
+	}
+	var count int64
+	db.Model(&Workflow{}).Count(&count)
+	if count != 1 {
+		t.Fatal("retry duplicated workflow")
+	}
+
 }

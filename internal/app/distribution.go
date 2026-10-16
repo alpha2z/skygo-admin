@@ -289,6 +289,12 @@ func (s *Server) distributionStep(ctx context.Context) {
 		if err != nil {
 			current.Status = "failed"
 			task.Status = "failed"
+			task.FinishedAt = &now
+			failure, _ := json.Marshal(control.Result{ID: task.ID, Status: "failed", Code: code})
+			task.Result = string(failure)
+			if e := tx.Model(&ServiceRecord{}).Where("id = ? AND busy_task = ?", task.ServiceID, task.ID).Update("busy_task", "").Error; e != nil {
+				return e
+			}
 		} else {
 			id := imagecontract.ReleaseImage{Role: serviceKind(tx, d.Service), Reference: d.Image, Platform: d.Platform}.Key()
 			cache := ImageCache{ID: id, Service: serviceKind(tx, d.Service), Image: d.Image, Platform: d.Platform, ImageID: result.ImageID, SHA256: result.SHA256, Size: result.Size, CreatedAt: now}
@@ -449,14 +455,32 @@ func (s *Server) retryDelivery(c *gin.Context) {
 		if old.Status == "uncertain" {
 			return nil, errConflict
 		}
-		if _, err := s.trustedRelease(tx, d.ReleaseID); err != nil {
-			return nil, err
+		var workflow *Workflow
+		if old.WorkflowID != "" {
+			var w Workflow
+			var plan WorkflowPlan
+			if old.Status != "failed" || tx.First(&w, "id = ?", old.WorkflowID).Error != nil || w.Status != "blocked" || w.ChildID != old.ID || w.RollingBack || time.Now().After(w.ExpiresAt) || json.Unmarshal([]byte(w.Plan), &plan) != nil || !plan.CacheOnly || w.Position >= len(plan.Steps) || plan.Steps[w.Position].Command.Action != "prepare-image" {
+				return nil, errConflict
+			}
+			// Validate the original authority and frozen scope inside this transaction.
+			w.Status = "waiting"
+			if tx.Save(&w).Error != nil {
+				return nil, errConflict
+			}
+			if err := s.workflowDispatch(tx, old); err != nil {
+				return nil, err
+			}
+			workflow = &w
+		} else {
+			if _, err := s.trustedRelease(tx, d.ReleaseID); err != nil {
+				return nil, err
+			}
 		}
 		if tx.First(&h, "id = ?", d.HostID).Error != nil || !h.Active || time.Since(h.LastSeen) > time.Minute {
 			return nil, errConflict
 		}
 		var service ServiceRecord
-		if tx.First(&service, "id = ?", d.Service).Error != nil || service.BusyTask != "" {
+		if tx.First(&service, "id = ?", d.Service).Error != nil || service.BusyTask != "" && !(workflow != nil && service.BusyTask == old.ID) {
 			return nil, errConflict
 		}
 		id, err := randomToken(24)
@@ -469,9 +493,20 @@ func (s *Server) retryDelivery(c *gin.Context) {
 		}
 		cmd.ID = id
 		cmd.ExpiresAt = time.Now().UTC().Add(time.Hour)
+		if workflow != nil {
+			cmd.ExpiresAt = workflow.ExpiresAt
+		}
 		cmd.Archive = nil
 		raw, _ := json.Marshal(cmd)
 		task := Task{ID: id, DeliveryID: d.ID, HostID: d.HostID, ServiceID: d.Service, Action: "prepare-image", Payload: string(raw), PayloadHash: control.Digest(raw), Status: "queued", RequestedBy: uint32(c.GetUint("admin_id")), CreatedAt: time.Now().UTC(), ExpiresAt: cmd.ExpiresAt}
+		if workflow != nil {
+			task.WorkflowID, task.RequestedBy, task.ApprovedBy, task.SingleConfirmation = old.WorkflowID, old.RequestedBy, old.ApprovedBy, old.SingleConfirmation
+			workflow.ChildID, workflow.Code = task.ID, ""
+			workflow.UpdatedAt = time.Now().UTC()
+			if tx.Save(workflow).Error != nil || tx.Model(&service).Update("busy_task", task.ID).Error != nil {
+				return nil, errConflict
+			}
+		}
 		if d.Mode == "archive" {
 			if s.distribution == nil {
 				return nil, errConflict
@@ -483,8 +518,10 @@ func (s *Server) retryDelivery(c *gin.Context) {
 		if err := tx.Create(&task).Error; err != nil {
 			return nil, err
 		}
-		if err := tx.Save(&ImagePreparation{ID: preparationID(d.HostID, prepareTarget{Service: d.Service, Platform: d.Platform, Image: d.Image}), TaskID: id, HostBootID: h.BootID}).Error; err != nil {
-			return nil, err
+		if workflow == nil {
+			if err := tx.Save(&ImagePreparation{ID: preparationID(d.HostID, prepareTarget{Service: d.Service, Platform: d.Platform, Image: d.Image}), TaskID: id, HostBootID: h.BootID}).Error; err != nil {
+				return nil, err
+			}
 		}
 		return d, tx.Save(&d).Error
 	})

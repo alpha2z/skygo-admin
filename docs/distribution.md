@@ -136,3 +136,11 @@ fallback when a requested image is absent locally. Central archive imports and
 verified local cached images remain usable. This is an operator-side policy;
 keep Registry credentials only on the controller and mount the daemon's storage
 root read-only for archive capacity checks.
+
+A failed cache-only workflow preparation can be retried through its delivery.
+The retry retains the workflow, original authorizations, scope locks and expiry,
+creates a new task attempt, and revalidates the provider. It cannot retry service
+mutations, uncertain commands or expired workflows. Central download failures
+store a terminal failure receipt and release only that child's busy marker.
+Cache capacity must include the conservative 8 GiB reservation plus retained
+archives; an 8 GiB quota alone cannot accommodate a second uncached image.
