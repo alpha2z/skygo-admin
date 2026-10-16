@@ -215,3 +215,20 @@ func TestExtensionTaskAuthorizationAndDispatchMySQL(t *testing.T) {
 		t.Fatal("duplicate request created a task")
 	}
 }
+
+func TestLocalizedPageTitleValidation(t *testing.T) {
+	for _, value := range []map[string]string{nil, {"en": "Example", "zh-CN": "示例", "ja": "サンプル"}} {
+		if !validPageTitles(value) {
+			t.Fatal("valid localized title rejected")
+		}
+	}
+	for _, value := range []map[string]string{{"en": " "}, {"../en": "Example"}, {"en": strings.Repeat("x", 513)}} {
+		if validPageTitles(value) {
+			t.Fatal("invalid localized title accepted")
+		}
+	}
+	raw, err := json.Marshal(ExtensionPage{Title: "Legacy", Titles: map[string]string{"en": "Example"}})
+	if err != nil || !strings.Contains(string(raw), `"titles":{"en":"Example"}`) {
+		t.Fatal("localized title missing from catalogue serialization")
+	}
+}

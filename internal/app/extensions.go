@@ -41,12 +41,26 @@ type ExtensionRoute struct {
 	Handler    gin.HandlerFunc
 }
 type ExtensionPage struct {
-	Group      string   `json:"group,omitempty"`
-	Replaces   []string `json:"replaces,omitempty"`
-	ID         string   `json:"id"`
-	Title      string   `json:"title"`
-	Permission string   `json:"permission"`
-	Script     string   `json:"script"`
+	Group      string            `json:"group,omitempty"`
+	Replaces   []string          `json:"replaces,omitempty"`
+	ID         string            `json:"id"`
+	Title      string            `json:"title"`
+	Titles     map[string]string `json:"titles,omitempty"`
+	Permission string            `json:"permission"`
+	Script     string            `json:"script"`
+}
+
+// Localized titles are optional metadata; legacy extension titles remain valid.
+func validPageTitles(titles map[string]string) bool {
+	if len(titles) > 16 {
+		return false
+	}
+	for locale, title := range titles {
+		if !regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`).MatchString(locale) || strings.TrimSpace(title) == "" || len(title) > 512 {
+			return false
+		}
+	}
+	return true
 }
 
 var extensionID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
@@ -88,7 +102,7 @@ func validateExtensions(xs []Extension) error {
 		}
 		pages := map[string]bool{}
 		for _, p := range x.Pages {
-			if !extensionID.MatchString(p.ID) || pages[p.ID] || p.Title == "" || !permissions[p.Permission] || x.Assets == nil || !fs.ValidPath(p.Script) || !strings.HasSuffix(p.Script, ".js") {
+			if !extensionID.MatchString(p.ID) || pages[p.ID] || p.Title == "" || !validPageTitles(p.Titles) || !permissions[p.Permission] || x.Assets == nil || !fs.ValidPath(p.Script) || !strings.HasSuffix(p.Script, ".js") {
 				return errors.New("invalid extension page")
 			}
 			if _, err := fs.Stat(x.Assets, p.Script); err != nil {

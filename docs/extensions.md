@@ -127,3 +127,15 @@ the workflow configured in the composition trust policy.
 声明只允许注册，不在正常启动时修改数据库授权。新权限需先通过显式增量迁移
 授予预期角色；其他角色仍默认拒绝。签名包、会话、CSRF 和路由鉴权继续生效。
 插件页面必须导出 `render(ctx)`；`mount(ctx)` 不是宿主调用入口。
+
+### Localized page titles
+
+Page descriptors may provide optional `titles`, for example
+`{"en":"Overview","zh-CN":"总览","ja":"概要"}`, alongside the required legacy
+`title`. The shell chooses its saved locale, falls back to `titles.en`, and then
+uses `title`. Existing descriptors remain compatible. Locale keys are bounded
+BCP-47-style identifiers; blank or oversized labels are rejected. Page IDs,
+permissions, scripts and routes are unchanged. Extension modules receive
+`ctx.locale`; keep application translations in the extension, not the core.
+Deploy catalog/API support and the matching Web assets together before enabling
+localized descriptors. The default locale is English until the user saves a choice.

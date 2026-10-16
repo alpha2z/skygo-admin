@@ -47,3 +47,12 @@ test('dirty form detection includes edits, checkboxes and selects but ignores re
  inputs.pop();inputs.push({tagName:'SELECT',selectedIndex:1,options:[{defaultSelected:false},{defaultSelected:false}]});assert.equal(hasUnsavedChanges(root),true);
  inputs[1].options[1].defaultSelected=true;assert.equal(hasUnsavedChanges(root),false);
 });
+
+test('extension titles use the selected language with English and legacy fallbacks',()=>{
+ const page={title:'Legacy',titles:{en:'Example', 'zh-CN':'示例',ja:'サンプル'}};
+ assert.equal(load().locale.pageTitle(page),'Example');
+ assert.equal(load('zh-CN').locale.pageTitle(page),'示例');
+ assert.equal(load('ja').locale.pageTitle({title:'Legacy',titles:{en:'Example'}}),'Example');
+ assert.equal(load('ja').locale.pageTitle({title:'Legacy'}),'Legacy');
+ assert.equal(page.title,'Legacy');
+});

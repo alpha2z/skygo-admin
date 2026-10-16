@@ -380,6 +380,7 @@ const AdminLocale = (() => {
   }
   if (root.documentElement) root.documentElement.lang = locale;
  }
- return {text, setLocale, apply, supported, get locale() { return locale; }};
+ function pageTitle(page) { return page.titles?.[locale] || page.titles?.en || page.title; }
+ return {text, pageTitle, setLocale, apply, supported, get locale() { return locale; }};
 })();
 if (typeof module !== 'undefined') module.exports = AdminLocale;
