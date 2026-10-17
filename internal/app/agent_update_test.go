@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,15 @@ import (
 )
 
 func TestAgentUpdateCentralPreparationAndHeartbeatMySQL(t *testing.T) {
+	for _, containerd := range []bool{false, true} {
+		name := "classic"
+		if containerd {
+			name = "containerd"
+		}
+		t.Run(name, func(t *testing.T) { agentUpdateCentralPreparationAndHeartbeat(t, containerd) })
+	}
+}
+func agentUpdateCentralPreparationAndHeartbeat(t *testing.T, containerd bool) {
 	db, cfg := releaseDB(t)
 	cfg.IndependentApprovalEnabled = false
 	s, err := NewServer(cfg, db)
@@ -30,6 +41,15 @@ func TestAgentUpdateCentralPreparationAndHeartbeatMySQL(t *testing.T) {
 	ref := "ghcr.io/example/ops-agent@sha256:" + strings.Repeat("b", 64)
 	old := "sha256:" + strings.Repeat("a", 64)
 	next := "sha256:" + strings.Repeat("c", 64)
+	configID := next
+	var proof control.Command
+	var archive []byte
+	if containerd {
+		proof, archive, next = identityArchive(t)
+		ref = "ghcr.io/example/ops-agent@" + strings.Split(proof.Image, "@")[1]
+		configID = proof.Archive.ImageID
+	}
+
 	m := release.Manifest{Version: 1, ID: "ci-1-1", Build: release.Build{Repository: "example/tooling", Workflow: "build.yml", Ref: "refs/heads/main", SourceCommit: strings.Repeat("a", 40), RunID: 1, RunAttempt: 1}, Images: []release.Image{{Service: "ops-agent", Platform: "linux/amd64", Reference: ref}}}
 	signed, _ := release.Sign(m, key)
 	raw, _ := json.Marshal(signed)
@@ -50,7 +70,28 @@ func TestAgentUpdateCentralPreparationAndHeartbeatMySQL(t *testing.T) {
 	check(t, call(r, owner, "POST", "/api/v1/agent-updates/prepare", req, nil), 409)
 	centralTestConfig(t, s)
 	check(t, call(r, owner, "POST", "/api/v1/agent-updates/prepare", req, nil), 200)
-	centralTestArchives(t, s, next)
+	centralTestArchives(t, s, configID)
+	if containerd {
+		if err := os.WriteFile(filepath.Join(s.distribution.Directory, proof.Archive.SHA256), archive, 0600); err != nil {
+			t.Fatal(err)
+		}
+		var task Task
+		if err := db.First(&task, "id = ?", "prepare-agent").Error; err != nil {
+			t.Fatal(err)
+		}
+		var command control.Command
+		if err := json.Unmarshal([]byte(task.Payload), &command); err != nil {
+			t.Fatal(err)
+		}
+		command.Archive = proof.Archive
+		encoded, _ := json.Marshal(command)
+		task.Payload = string(encoded)
+		task.PayloadHash = control.Digest(encoded)
+		if err := db.Save(&task).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	check(t, call(r, nil, "GET", "/agent/v1/commands", nil, headers), 200)
 	bad := control.Result{ID: "prepare-agent", Status: "succeeded", Image: ref, ImageID: old, Platform: "linux/amd64"}
 	check(t, call(r, nil, "POST", "/agent/v1/results", bad, headers), 409)
@@ -58,6 +99,19 @@ func TestAgentUpdateCentralPreparationAndHeartbeatMySQL(t *testing.T) {
 	check(t, call(r, nil, "POST", "/agent/v1/results", bad, headers), 200)
 	req["request_id"] = "update-agent"
 	req["preparation_id"] = "prepare-agent"
+	if containerd {
+		path := filepath.Join(s.distribution.Directory, proof.Archive.SHA256)
+		badArchive := append([]byte(nil), archive...)
+		badArchive[len(badArchive)-1] ^= 1
+		if err := os.WriteFile(path, badArchive, 0600); err != nil {
+			t.Fatal(err)
+		}
+		check(t, call(r, owner, "POST", "/api/v1/agent-updates", req, nil), 409)
+		if err := os.WriteFile(path, archive, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	check(t, call(r, owner, "POST", "/api/v1/agent-updates", req, nil), 200)
 	check(t, call(r, owner, "POST", "/api/v1/agent-updates", req, nil), 200)
 	if !updateHostBlocked(db, "host", "") {

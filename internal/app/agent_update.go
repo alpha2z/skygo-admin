@@ -136,7 +136,7 @@ func (s *Server) agentUpdateMutation(c *gin.Context, prepare bool) {
 			var p Task
 			var result control.Result
 			var pc control.Command
-			if tx.First(&p, "id = ?", req.PreparationID).Error != nil || p.HostID != h.ID || p.ServiceID != def.ID || p.Action != "prepare-image" || p.Status != "succeeded" || p.FinishedAt == nil || time.Since(*p.FinishedAt) > preparationTTL || json.Unmarshal([]byte(p.Result), &result) != nil || json.Unmarshal([]byte(p.Payload), &pc) != nil || pc.Archive == nil || pc.Image != image || result.ImageID != pc.Archive.ImageID {
+			if tx.First(&p, "id = ?", req.PreparationID).Error != nil || p.HostID != h.ID || p.ServiceID != def.ID || p.Action != "prepare-image" || p.Status != "succeeded" || p.FinishedAt == nil || time.Since(*p.FinishedAt) > preparationTTL || json.Unmarshal([]byte(p.Result), &result) != nil || json.Unmarshal([]byte(p.Payload), &pc) != nil || pc.Archive == nil || pc.Image != image || !s.preparedImageIdentity(pc, result.ImageID) {
 				return nil, publicationError("PREPARATION_REQUIRED", "Prepare the selected Agent image first.")
 			}
 			cmd.AgentUpdate = &control.AgentUpdate{PreparationID: req.PreparationID, ImageID: result.ImageID, BootID: h.BootID, ReleaseID: req.ReleaseID}
