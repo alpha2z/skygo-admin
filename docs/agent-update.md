@@ -63,3 +63,11 @@ Docker Hub 不可用时，可用 `SKYGO_ADMIN_DOCKER_CLI_IMAGE` 指定已安装�
 Docker Desktop 的 Unix Socket 测试使用独立 Linux 数据卷，测试结束清理。
 
 以上不代表真实 GHCR 凭据、远程安装或现网流程已验收。
+
+## Containerd 镜像准备回执
+
+经典 Docker 的 config ID 与 containerd 的平台 manifest ID 可以表示同一镜像。
+Admin 除保留 config ID 校验外，仅在重新核对签名任务绑定的归档大小、SHA256、
+Registry 根摘要、平台选择和 config 关联后，接受该归档证明的具体平台 manifest ID。
+缺失／损坏归档、错误平台或其他摘要仍拒绝。不修改既有任务及本地回执，修复前被拒绝的
+正确回执可由 Agent 正常重报并完成核对。

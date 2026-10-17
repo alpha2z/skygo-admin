@@ -909,7 +909,7 @@ func (s *Server) result(c *gin.Context) {
 			}
 		}
 		if req.Status == "succeeded" && t.Action == "prepare-image" {
-			if req.Image != command.Image || req.Platform != command.Platform || !validRuntimeImageID(req.ImageID) || (command.Archive != nil && req.ImageID != command.Archive.ImageID) {
+			if req.Image != command.Image || req.Platform != command.Platform || !validRuntimeImageID(req.ImageID) || (command.Archive != nil && !s.preparedImageIdentity(command, req.ImageID)) {
 				return errConflict
 			}
 		}
