@@ -97,14 +97,37 @@ func (s *Server) workflowProvider(c *gin.Context, id string, approve bool) (Work
 	return p, true
 }
 func planHash(p WorkflowPlan) string { b, _ := json.Marshal(p); return control.Digest(b) }
+
+type workflowTargetError struct {
+	Service string `json:"service"`
+	Field   string `json:"field"`
+}
+
+func (e *workflowTargetError) Error() string {
+	return "WORKFLOW_TARGET_INVALID:" + e.Service + ":" + e.Field
+}
+
 func validWorkflowPlan(p WorkflowPlan) error {
 	if len(p.Targets) == 0 || len(p.Targets) > 64 || len(p.Steps) == 0 || len(p.Steps) > 512 || len(p.Rollback) > 512 || len(p.Group) > 128 || p.Group == "" || len(p.Reason) > 512 || strings.TrimSpace(p.Reason) == "" {
 		return errors.New("invalid workflow scope")
 	}
 	targets := map[string]string{}
 	for _, t := range p.Targets {
-		if targets[t.Service] != "" || !control.Identifier.MatchString(t.Service) || !control.Identifier.MatchString(t.Host) || len(t.ScopeRevision) != 64 || !control.Image.MatchString(t.Image) || !validRuntimeImageID(t.ImageID) {
-			return errors.New("invalid workflow target")
+		if !control.Identifier.MatchString(t.Service) || !control.Identifier.MatchString(t.Host) {
+			return errors.New("invalid workflow target identifier")
+		}
+		for _, check := range []struct {
+			invalid bool
+			field   string
+		}{
+			{targets[t.Service] != "", "duplicate_service"},
+			{!control.Image.MatchString(t.Image), "immutable_image"},
+			{len(t.ScopeRevision) != 64, "scope_revision"},
+			{!validRuntimeImageID(t.ImageID), "runtime_image_id"},
+		} {
+			if check.invalid {
+				return &workflowTargetError{Service: t.Service, Field: check.field}
+			}
 		}
 		targets[t.Service] = t.Host
 	}
@@ -163,7 +186,12 @@ func (s *Server) workflowPreview(c *gin.Context) {
 		err = validWorkflowPlan(plan)
 	}
 	if err != nil {
-		c.JSON(409, gin.H{"error": err.Error()})
+		response := gin.H{"error": err.Error()}
+		var targetError *workflowTargetError
+		if errors.As(err, &targetError) {
+			response["diagnostic"] = targetError
+		}
+		c.JSON(409, response)
 		return
 	}
 	c.JSON(200, gin.H{"plan": plan, "preview_hash": planHash(plan)})
