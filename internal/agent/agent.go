@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/alpha2z/skygo-admin/internal/baseline"
 	"github.com/alpha2z/skygo-admin/internal/control"
 	"github.com/alpha2z/skygo-admin/internal/settings"
 	"io"
@@ -23,6 +24,8 @@ import (
 )
 
 type LocalService struct {
+	rollbackBaseline     *baseline.Record
+	baselineArchive      string
 	RegistryPullDisabled bool     `json:"-"`
 	ObservationOnly      bool     `json:"observation_only,omitempty"`
 	PluginRevision       string   `json:"plugin_revision,omitempty"`

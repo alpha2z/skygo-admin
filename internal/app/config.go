@@ -15,6 +15,7 @@ import (
 )
 
 type Config struct {
+	HistoricalBaselinesDirectory                       string
 	PluginInventories                                  map[string][]string
 	IndependentApprovalEnabled                         bool
 	Workflows                                          map[string]WorkflowProvider
@@ -37,7 +38,7 @@ type Config struct {
 }
 
 func LoadConfig() (Config, error) {
-	c := Config{UnixSocket: os.Getenv("ADMIN_UNIX_SOCKET"), ListenAddress: "127.0.0.1:18391", CookieSecure: true, TOTPEnabled: true, WebRoot: "admin-web"}
+	c := Config{HistoricalBaselinesDirectory: os.Getenv("ADMIN_HISTORICAL_BASELINES_DIR"), UnixSocket: os.Getenv("ADMIN_UNIX_SOCKET"), ListenAddress: "127.0.0.1:18391", CookieSecure: true, TOTPEnabled: true, WebRoot: "admin-web"}
 	if v := os.Getenv("ADMIN_LISTEN_ADDRESS"); v != "" {
 		c.ListenAddress = v
 	}

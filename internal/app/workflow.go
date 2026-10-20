@@ -26,13 +26,14 @@ type WorkflowProvider struct {
 	Validate           func(context.Context, *gorm.DB, WorkflowPlan) error
 }
 type WorkflowTarget struct {
-	PluginRevision string `json:"plugin_revision,omitempty"`
-	Service        string `json:"service"`
-	Host           string `json:"host"`
-	Definition     string `json:"definition"`
-	ScopeRevision  string `json:"scope_revision"`
-	Image          string `json:"image"`
-	ImageID        string `json:"image_id"`
+	HistoricalBaselineID string `json:"historical_baseline_id,omitempty"`
+	PluginRevision       string `json:"plugin_revision,omitempty"`
+	Service              string `json:"service"`
+	Host                 string `json:"host"`
+	Definition           string `json:"definition"`
+	ScopeRevision        string `json:"scope_revision"`
+	Image                string `json:"image"`
+	ImageID              string `json:"image_id"`
 }
 type WorkflowStep struct {
 	ImageIDAlternatives []string        `json:"image_id_alternatives,omitempty"`
@@ -121,7 +122,7 @@ func validWorkflowPlan(p WorkflowPlan) error {
 			field   string
 		}{
 			{targets[t.Service] != "", "duplicate_service"},
-			{!control.Image.MatchString(t.Image), "immutable_image"},
+			{!control.Image.MatchString(t.Image) && !(len(t.HistoricalBaselineID) == 64 && !strings.Contains(t.Image, "@")), "immutable_image"},
 			{len(t.ScopeRevision) != 64, "scope_revision"},
 			{!validRuntimeImageID(t.ImageID), "runtime_image_id"},
 		} {
@@ -162,6 +163,12 @@ func validWorkflowPlan(p WorkflowPlan) error {
 		c.SyncImageEnv = false
 		c.InventoryRevision = ""
 		c.PreviousImageID = ""
+		if c.HistoricalBaselineID != "" {
+			c.WorkflowID = "validation"
+			c.SyncImageEnv = true
+			c.InventoryRevision = strings.Repeat("0", 64)
+			c.PreviousImageID = step.ImageID
+		}
 		if c.Validate() != nil {
 			return errors.New("invalid workflow command")
 		}
@@ -184,6 +191,9 @@ func (s *Server) workflowPreview(c *gin.Context) {
 	plan, err := provider.Resolve(c.Request.Context(), s.db, req.RequestID, req.Intent)
 	if err == nil {
 		err = validWorkflowPlan(plan)
+	}
+	if err == nil {
+		err = s.checkHistoricalBaselines(plan)
 	}
 	if err != nil {
 		response := gin.H{"error": err.Error()}
@@ -234,7 +244,7 @@ func (s *Server) workflowCreate(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
-		if validWorkflowPlan(plan) != nil || planHash(plan) != req.PreviewHash {
+		if validWorkflowPlan(plan) != nil || s.checkHistoricalBaselines(plan) != nil || planHash(plan) != req.PreviewHash {
 			return nil, errConflict
 		}
 		raw, _ := json.Marshal(plan)
@@ -414,6 +424,9 @@ func workflowObserved(tx *gorm.DB, t WorkflowTarget) (control.Observation, error
 	return control.Observation{}, errors.New("service observation missing")
 }
 func (s *Server) checkWorkflowScope(tx *gorm.DB, w Workflow, p WorkflowPlan, initial bool) error {
+	if err := s.checkHistoricalBaselines(p); err != nil {
+		return err
+	}
 	if err := checkWorkflowPreparations(tx, w, p, initial); err != nil {
 		return err
 	}
@@ -434,6 +447,7 @@ func (s *Server) checkWorkflowScope(tx *gorm.DB, w Workflow, p WorkflowPlan, ini
 			if task.Status == "succeeded" {
 				t := expected[task.ServiceID]
 				t.Image = command.Image
+				t.HistoricalBaselineID = command.HistoricalBaselineID
 				var steps = []WorkflowStep{}
 				steps = append(steps, p.Steps...)
 				steps = append(steps, p.Rollback...)
@@ -457,6 +471,16 @@ func (s *Server) checkWorkflowScope(tx *gorm.DB, w Workflow, p WorkflowPlan, ini
 			return err
 		}
 		want := expected[t.Service]
+		if t.HistoricalBaselineID != "" {
+			capable := false
+			for _, capability := range o.Capabilities {
+				capable = capable || capability == "workflow.historical-baseline.v1"
+			}
+			if !capable {
+				return errors.New("HISTORICAL_BASELINE_CAPABILITY_REQUIRED")
+			}
+		}
+
 		if o.PluginRevision != t.PluginRevision {
 			return errors.New("workflow plugin revision changed")
 		}
@@ -467,7 +491,7 @@ func (s *Server) checkWorkflowScope(tx *gorm.DB, w Workflow, p WorkflowPlan, ini
 				}
 			}
 		}
-		if o.ScopeRevision != t.ScopeRevision || o.ConfiguredImage != want.Image || o.ImageID != want.ImageID {
+		if o.HistoricalBaselineID != want.HistoricalBaselineID || o.ScopeRevision != t.ScopeRevision || o.ConfiguredImage != want.Image || o.ImageID != want.ImageID {
 			return errors.New("execution scope changed")
 		}
 	}
@@ -630,6 +654,7 @@ func (s *Server) workflowTick(ctx context.Context) error {
 			command.WorkflowID = w.ID
 			command.WorkflowScopeRevision = o.ScopeRevision
 			command.WorkflowImage = o.ConfiguredImage
+			command.WorkflowBaselineID = o.HistoricalBaselineID
 			command.PreviousImageID = o.ImageID
 			command.HostID = target.Host
 			command.ExpiresAt = w.ExpiresAt

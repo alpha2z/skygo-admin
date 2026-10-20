@@ -38,6 +38,8 @@ type AgentUpdate struct {
 }
 
 type Command struct {
+	HistoricalBaselineID  string          `json:"historical_baseline_id,omitempty"`
+	WorkflowBaselineID    string          `json:"workflow_baseline_id,omitempty"`
 	AgentUpdate           *AgentUpdate    `json:"agent_update,omitempty"`
 	PluginRevision        string          `json:"plugin_revision,omitempty"`
 	WorkflowScopeRevision string          `json:"workflow_scope_revision,omitempty"`
@@ -81,23 +83,24 @@ type Result struct {
 	ConfigHash string          `json:"config_hash,omitempty"`
 }
 type Observation struct {
-	ObservationOnly   bool                       `json:"observation_only,omitempty"`
-	PluginRevision    string                     `json:"plugin_revision,omitempty"`
-	ScopeRevision     string                     `json:"scope_revision,omitempty"`
-	ConfiguredImage   string                     `json:"configured_image,omitempty"`
-	Extensions        map[string]json.RawMessage `json:"extensions,omitempty"`
-	SyncImageEnv      bool                       `json:"sync_image_env,omitempty"`
-	Running           bool                       `json:"running"`
-	UnitID            string                     `json:"unit_id,omitempty"`
-	ControlKind       string                     `json:"control_kind,omitempty"`
-	InventoryRevision string                     `json:"inventory_revision,omitempty"`
-	ImageID           string                     `json:"image_id,omitempty"`
-	Platform          string                     `json:"platform,omitempty"`
-	Capabilities      []string                   `json:"capabilities,omitempty"`
-	Service           string                     `json:"service"`
-	Image             string                     `json:"image"`
-	Healthy           bool                       `json:"healthy"`
-	ConfigHash        string                     `json:"config_hash,omitempty"`
+	HistoricalBaselineID string                     `json:"historical_baseline_id,omitempty"`
+	ObservationOnly      bool                       `json:"observation_only,omitempty"`
+	PluginRevision       string                     `json:"plugin_revision,omitempty"`
+	ScopeRevision        string                     `json:"scope_revision,omitempty"`
+	ConfiguredImage      string                     `json:"configured_image,omitempty"`
+	Extensions           map[string]json.RawMessage `json:"extensions,omitempty"`
+	SyncImageEnv         bool                       `json:"sync_image_env,omitempty"`
+	Running              bool                       `json:"running"`
+	UnitID               string                     `json:"unit_id,omitempty"`
+	ControlKind          string                     `json:"control_kind,omitempty"`
+	InventoryRevision    string                     `json:"inventory_revision,omitempty"`
+	ImageID              string                     `json:"image_id,omitempty"`
+	Platform             string                     `json:"platform,omitempty"`
+	Capabilities         []string                   `json:"capabilities,omitempty"`
+	Service              string                     `json:"service"`
+	Image                string                     `json:"image"`
+	Healthy              bool                       `json:"healthy"`
+	ConfigHash           string                     `json:"config_hash,omitempty"`
 }
 type Heartbeat struct {
 	Version      int           `json:"version"`
@@ -106,11 +109,21 @@ type Heartbeat struct {
 }
 
 func Digest(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+func historicalScope(id, image string) bool {
+	return regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(id) && regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]*:[a-zA-Z0-9_][a-zA-Z0-9_.-]*$`).MatchString(image)
+}
 func (c Command) Validate() error {
+	if c.WorkflowBaselineID != "" && (c.WorkflowScopeRevision == "" || !historicalScope(c.WorkflowBaselineID, c.WorkflowImage)) {
+		return errors.New("invalid historical workflow scope")
+	}
+	if c.HistoricalBaselineID != "" && (c.Action != "rollback" || c.WorkflowID == "" || !c.SyncImageEnv || !historicalScope(c.HistoricalBaselineID, c.Image)) {
+		return errors.New("historical baseline is restricted to workflow rollback")
+	}
+
 	if (c.WorkflowID != "" && !Identifier.MatchString(c.WorkflowID)) || c.Version != Version || !Identifier.MatchString(c.ID) || !Identifier.MatchString(c.HostID) || !Identifier.MatchString(c.Service) || c.ExpiresAt.IsZero() {
 		return errors.New("invalid command identity")
 	}
-	if c.WorkflowScopeRevision != "" && (c.WorkflowID == "" || len(c.WorkflowScopeRevision) != 64 || !Image.MatchString(c.WorkflowImage) || !ImageIdentity(c.PreviousImageID)) {
+	if c.WorkflowScopeRevision != "" && (c.WorkflowID == "" || len(c.WorkflowScopeRevision) != 64 || (!Image.MatchString(c.WorkflowImage) && !historicalScope(c.WorkflowBaselineID, c.WorkflowImage)) || !ImageIdentity(c.PreviousImageID)) {
 		return errors.New("invalid workflow local scope")
 	}
 	if c.SyncImageEnv && ((c.Action != "deploy" && c.Action != "rollback") || len(c.InventoryRevision) != 64 || !ImageIdentity(c.PreviousImageID)) {
@@ -164,7 +177,7 @@ func (c Command) Validate() error {
 			return errors.New("invalid image preparation")
 		}
 	case "deploy", "rollback":
-		if !Image.MatchString(c.Image) || len(c.Config) > 0 {
+		if (!Image.MatchString(c.Image) && !(c.Action == "rollback" && historicalScope(c.HistoricalBaselineID, c.Image))) || len(c.Config) > 0 {
 			return errors.New("immutable image required")
 		}
 	case "configure":

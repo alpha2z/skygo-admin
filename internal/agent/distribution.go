@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/alpha2z/skygo-admin/internal/baseline"
 	"github.com/alpha2z/skygo-admin/internal/control"
 	"github.com/alpha2z/skygo-admin/internal/imagecontract"
 	"github.com/alpha2z/skygo-admin/internal/settings"
@@ -141,6 +142,14 @@ func (a *Agent) executeCleanup(ctx context.Context, s LocalService, c control.Co
 	r := control.Result{ID: c.ID, Status: "failed", Code: "CLEANUP_PROTECTED"}
 	if _, ok := a.driver.(Docker); !ok || c.Cleanup == nil {
 		return r
+	}
+	records, _ := filepath.Glob(filepath.Join(a.cfg.StateDir, "baselines", "*.json"))
+	for _, path := range records {
+		id := strings.TrimSuffix(filepath.Base(path), ".json")
+		b, err := baseline.Read(filepath.Join(a.cfg.StateDir, "baselines"), id, a.key, false)
+		if err != nil || b.ImageID == c.Cleanup.ImageID || b.ArchiveSHA256 == c.Cleanup.SHA256 {
+			return r
+		}
 	}
 	allowed := false
 	for _, repo := range s.AllowedImages {

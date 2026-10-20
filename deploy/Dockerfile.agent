@@ -13,7 +13,9 @@ COPY admin-web ./admin-web
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOWORK=off go build -trimpath -o /ops-agent ./cmd/ops-agent
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOWORK=off go build -trimpath -o /baseline ./cmd/baseline
 FROM docker:29-cli
 COPY --from=build /ops-agent /usr/local/bin/ops-agent
+COPY --from=build /baseline /usr/local/bin/baseline
 ENTRYPOINT ["ops-agent"]
 CMD ["-config","/etc/skygo-admin/agent.json"]

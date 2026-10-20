@@ -1,8 +1,10 @@
 package app
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"github.com/alpha2z/skygo-admin/internal/baseline"
 	"github.com/alpha2z/skygo-admin/internal/control"
 	"github.com/alpha2z/skygo-admin/internal/imagecontract"
 	"github.com/alpha2z/skygo-admin/internal/registrycache"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -62,6 +65,21 @@ func (s *Server) cleanupResources(tx *gorm.DB) ([]CleanupResource, error) {
 	protect := func(key, reason string) {
 		if key != "" {
 			protected[key] = reason
+		}
+	}
+	if s.cfg.HistoricalBaselinesDirectory != "" {
+		paths, err := filepath.Glob(filepath.Join(s.cfg.HistoricalBaselinesDirectory, "*.json"))
+		if err != nil {
+			return nil, err
+		}
+		for _, path := range paths {
+			id := strings.TrimSuffix(filepath.Base(path), ".json")
+			r, err := baseline.Read(s.cfg.HistoricalBaselinesDirectory, id, s.cfg.SigningKey.Public().(ed25519.PublicKey), true)
+			if err != nil {
+				return nil, errors.New("historical baseline unreadable; cleanup disabled")
+			}
+			protect(r.ImageID, "Historical rollback baseline")
+			protect(r.ArchiveSHA256, "Historical rollback baseline")
 		}
 	}
 	online := map[string]bool{}

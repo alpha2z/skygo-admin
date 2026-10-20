@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/alpha2z/skygo-admin/internal/baseline"
 	"github.com/alpha2z/skygo-admin/internal/control"
 	"github.com/alpha2z/skygo-admin/internal/settings"
 	"net/http"
@@ -253,6 +254,7 @@ func TestDockerRecoveryUnit(t *testing.T) {
 		t.Fatal("ordinary rollback lost old env")
 	}
 
+	testHistoricalRollback(t, ctx, a, cfg, key, service, f.Images[0])
 }
 
 type failedDeployment struct{ Docker }
@@ -264,4 +266,123 @@ func (d failedDeployment) Execute(ctx context.Context, s LocalService, c control
 		r.Code = "SYNTHETIC_LOST_VERIFICATION"
 	}
 	return r
+}
+
+func testHistoricalRollback(t *testing.T, ctx context.Context, a *Agent, cfg Config, key ed25519.PrivateKey, service LocalService, next string) {
+	t.Helper()
+	a.driver = Docker{}
+	old, err := a.driver.Observe(ctx, service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag := "skygo-admin/historical-fixture:" + control.Digest([]byte(t.TempDir()))[:12]
+	if _, err = run(ctx, os.Environ(), "image", "tag", old.ImageID, tag); err != nil {
+		t.Fatal(err)
+	}
+	defer run(context.Background(), os.Environ(), "image", "rm", tag)
+	raw, _ := os.ReadFile(service.EnvFile)
+	raw = replaceLine(raw, service.ImageVariable, service.ImageVariable+"="+tag, true)
+	if err = os.WriteFile(service.EnvFile, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, scope, err := a.workflowConfiguration(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exportPath := filepath.Join(t.TempDir(), "export.tar")
+	_, err = run(ctx, os.Environ(), "image", "save", "--output", exportPath, tag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := os.ReadFile(exportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfg.StateDir, "baselines")
+	os.MkdirAll(dir, 0700)
+	b := baseline.Record{Version: 1, Host: cfg.HostID, Service: service.ID, Tag: tag, ImageID: old.ImageID, Platform: old.Platform, ScopeRevision: scope, ArchiveSHA256: control.Digest(archive), ArchiveSize: int64(len(archive)), Operator: "integration-test", Reason: "historical rollback fixture", CreatedAt: time.Now().UTC()}
+	path := filepath.Join(dir, b.ArchiveSHA256+".tar")
+	os.WriteFile(path, archive, 0600)
+	b.ConfigID, err = baseline.ArchiveConfigID(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, envelope, err := baseline.Sign(b, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(path, archive, 0600)
+	os.WriteFile(filepath.Join(dir, id+".json"), envelope, 0600)
+	os.WriteFile(filepath.Join(dir, service.ID+".active"), []byte(id), 0600)
+	a.decorateWorkflow(service, &old)
+	if old.HistoricalBaselineID != id {
+		_, _, e := a.activeBaseline(service)
+		t.Fatal("historical identity not reported", e)
+	}
+	command := func(name, action, image, baselineID string) control.Command {
+		o, err := a.driver.Observe(ctx, service)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.decorateWorkflow(service, &o)
+		rev, _ := a.unitRevision(service)
+		return control.Command{Version: 1, ID: name, HostID: cfg.HostID, Service: service.ID, Action: action, Image: image, HistoricalBaselineID: baselineID, WorkflowID: "historical-test", WorkflowImage: o.ConfiguredImage, WorkflowScopeRevision: o.ScopeRevision, WorkflowBaselineID: o.HistoricalBaselineID, SyncImageEnv: true, InventoryRevision: rev, PreviousImageID: o.ImageID, ExpiresAt: time.Now().Add(time.Minute)}
+	}
+	a.driver = failedDeployment{Docker: Docker{}}
+	c := command("baseline-failed-deploy", "deploy", next, "")
+	signed, err := control.Sign(c, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := a.Handle(ctx, signed); r.Code != "DEPLOYMENT_ROLLED_BACK" {
+		t.Fatal("historical automatic recovery failed", r)
+	}
+	a.driver = Docker{}
+	c = command("baseline-deploy", "deploy", next, "")
+	signed, _ = control.Sign(c, key)
+	if r := a.Handle(ctx, signed); r.Status != "succeeded" {
+		t.Fatal("historical upgrade failed", r)
+	}
+	c = command("baseline-corrupt", "rollback", tag, id)
+	signed, _ = control.Sign(c, key)
+	os.WriteFile(path, []byte("damaged"), 0600)
+	if r := a.Handle(ctx, signed); r.Status == "succeeded" {
+		t.Fatal("corrupt archive accepted")
+	}
+	os.WriteFile(path, archive, 0600)
+	c = command("baseline-restore", "rollback", tag, id)
+	signed, err = control.Sign(c, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := a.Handle(ctx, signed); r.Status != "succeeded" {
+		t.Fatal("historical rollback failed", r)
+	}
+	fresh, err := New(cfg, Docker{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.recoverEnvDeployments(ctx)
+	if r := fresh.Handle(ctx, signed); r.Status != "succeeded" {
+		t.Fatal("historical receipt not replayed", r)
+	}
+	restored, _ := fresh.driver.Observe(ctx, service)
+	fresh.decorateWorkflow(service, &restored)
+	if restored.ImageID != b.ImageID || restored.HistoricalBaselineID != id {
+		t.Fatal("historical baseline not restored")
+	}
+	if _, err = run(ctx, os.Environ(), "image", "tag", next, tag); err != nil {
+		t.Fatal(err)
+	}
+	moved := restored
+	fresh.decorateWorkflow(service, &moved)
+	// Fresh observations must not carry a stale baseline after a tag moves.
+	var empty control.Observation
+	empty.ImageID = restored.ImageID
+	empty.Platform = restored.Platform
+	fresh.decorateWorkflow(service, &empty)
+	if empty.HistoricalBaselineID != "" {
+		t.Fatal("moved tag accepted")
+	}
+	run(ctx, os.Environ(), "image", "tag", b.ImageID, tag)
 }

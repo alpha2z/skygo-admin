@@ -32,3 +32,15 @@ func TestWorkflowTargetDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+func TestHistoricalBaselineCannotAuthorizeNewDeployment(t *testing.T) {
+	target := WorkflowTarget{Service: "service", Host: "host", Image: "example/old:v1", ImageID: "sha256:" + strings.Repeat("b", 64), ScopeRevision: strings.Repeat("c", 64), HistoricalBaselineID: strings.Repeat("a", 64)}
+	p := WorkflowPlan{Group: "test", Reason: "test", Targets: []WorkflowTarget{target}, Steps: []WorkflowStep{{Command: control.Command{Service: "service", HostID: "host", Action: "rollback", Image: target.Image, HistoricalBaselineID: target.HistoricalBaselineID}, ImageID: target.ImageID}}}
+	if err := validWorkflowPlan(p); err != nil {
+		t.Fatal(err)
+	}
+	p.Steps[0].Command.Action = "deploy"
+	if validWorkflowPlan(p) == nil {
+		t.Fatal("historical baseline accepted for new deployment")
+	}
+}

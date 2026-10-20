@@ -167,13 +167,16 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 				approved = true
 			}
 		}
+		if s.rollbackBaseline != nil && c.Action == "rollback" && c.HistoricalBaselineID != "" && c.Image == s.rollbackBaseline.Tag {
+			approved = true
+		}
 		if !approved {
 			r.Code = "IMAGE_NOT_APPROVED"
 			return r
 		}
 		env = imageEnv(s, c.Image)
-		cached, cacheErr := preparedImage(ctx, s, c.Image)
-		if cacheErr != nil || (!cached.matches(c.Image, cached.platform()) && !preparedEvidence(s, c.Image, cached.ID, cached.platform())) {
+		cached, cacheErr := deploymentImage(ctx, s, c.Image)
+		if cacheErr != nil || (s.rollbackBaseline == nil && !cached.matches(c.Image, cached.platform()) && !preparedEvidence(s, c.Image, cached.ID, cached.platform())) {
 			r.Code = "CENTRAL_DISTRIBUTION_REQUIRED"
 			return r
 		}
@@ -221,7 +224,10 @@ func (d Docker) Execute(ctx context.Context, s LocalService, c control.Command) 
 					r.Code = "STOPPED"
 					return r
 				}
-			} else if c.Action == "health" || (o.Healthy && ((c.Action != "deploy" && c.Action != "rollback") || (o.Image == c.Image || func() bool { image, err := preparedImage(ctx, s, c.Image); return err == nil && image.ID == o.ImageID }())) && (c.Action != "configure" || o.ConfigHash == c.ConfigHash)) {
+			} else if c.Action == "health" || (o.Healthy && ((c.Action != "deploy" && c.Action != "rollback") || (o.Image == c.Image || func() bool {
+				image, err := deploymentImage(ctx, s, c.Image)
+				return err == nil && image.ID == o.ImageID
+			}())) && (c.Action != "configure" || o.ConfigHash == c.ConfigHash)) {
 				if c.Action == "deploy" || c.Action == "rollback" {
 					r.Image = c.Image
 				}

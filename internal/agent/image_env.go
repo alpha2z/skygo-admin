@@ -146,7 +146,7 @@ func (a *Agent) planEnv(ctx context.Context, id string, services []LocalService,
 		if !s.SyncImageEnv {
 			continue
 		}
-		if s.EnvFile == "" || !control.Image.MatchString(images[i]) {
+		if s.EnvFile == "" || (!control.Image.MatchString(images[i]) && !(s.rollbackBaseline != nil && images[i] == s.rollbackBaseline.Tag)) {
 			return errors.New("image environment not configured")
 		}
 		// The template itself must use the inventory's dedicated image variable.

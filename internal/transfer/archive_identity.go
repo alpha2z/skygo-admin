@@ -8,6 +8,7 @@ import (
 	"errors"
 	ops "github.com/alpha2z/skygo-admin/internal/imagecontract"
 	"io"
+	"regexp"
 	"strings"
 )
 
@@ -82,6 +83,14 @@ func ArchiveRuntimeImage(f io.ReadSeeker, image ops.ReleaseImage) (string, error
 	if image.Validate() != nil {
 		return "", ops.Fail("DIGEST_MISMATCH")
 	}
+	return ArchiveRuntimeID(f, strings.Split(image.Reference, "@")[1], image.ImageID, image.Platform)
+}
+
+// ArchiveRuntimeID verifies the OCI graph without inventing a registry reference.
+func ArchiveRuntimeID(f io.ReadSeeker, rootID, configID, platform string) (string, error) {
+	if !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(rootID) || !regexp.MustCompile(`^sha256:[a-f0-9]{64}$`).MatchString(configID) {
+		return "", ops.Fail("DIGEST_MISMATCH")
+	}
 	if _, err := f.Seek(0, 0); err != nil {
 		return "", err
 	}
@@ -113,7 +122,7 @@ func ArchiveRuntimeImage(f io.ReadSeeker, image ops.ReleaseImage) (string, error
 			return "", err
 		}
 		var m manifest
-		if json.Unmarshal(raw, &m) != nil || m.SchemaVersion != 2 || (m.Config.Digest != image.ImageID && len(m.Manifests) == 0) {
+		if json.Unmarshal(raw, &m) != nil || m.SchemaVersion != 2 || (m.Config.Digest != configID && len(m.Manifests) == 0) {
 			continue
 		}
 		total += int64(len(raw))
@@ -123,20 +132,19 @@ func ArchiveRuntimeImage(f io.ReadSeeker, image ops.ReleaseImage) (string, error
 		sum := sha256.Sum256(raw)
 		manifests["sha256:"+hex.EncodeToString(sum[:])] = m
 	}
-	rootID := strings.Split(image.Reference, "@")[1]
 	root, ok := manifests[rootID]
 	if !ok {
 		return "", ops.Fail("DIGEST_MISMATCH")
 	}
 	if len(root.Manifests) == 0 {
-		if root.Config.Digest != image.ImageID {
+		if root.Config.Digest != configID {
 			return "", ops.Fail("DIGEST_MISMATCH")
 		}
 		return rootID, nil
 	}
 	selected := ""
 	for _, d := range root.Manifests {
-		if d.Platform.OS+"/"+d.Platform.Architecture == image.Platform {
+		if d.Platform.OS+"/"+d.Platform.Architecture == platform {
 			if selected != "" {
 				return "", ops.Fail("ARCH_MISMATCH")
 			}
@@ -144,7 +152,7 @@ func ArchiveRuntimeImage(f io.ReadSeeker, image ops.ReleaseImage) (string, error
 		}
 	}
 	selectedManifest, ok := manifests[selected]
-	if !ok || selectedManifest.Config.Digest != image.ImageID || len(selectedManifest.Manifests) != 0 {
+	if !ok || selectedManifest.Config.Digest != configID || len(selectedManifest.Manifests) != 0 {
 		return "", ops.Fail("DIGEST_MISMATCH")
 	}
 	return selected, nil

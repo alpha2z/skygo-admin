@@ -70,9 +70,17 @@ func (a *Agent) handleEnvDeployment(ctx context.Context, e control.Envelope, c c
 	}
 	work, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
+	if c.HistoricalBaselineID != "" {
+		var err error
+		s, err = a.authorizeBaseline(work, s, c)
+		if err != nil {
+			return finish(control.Result{ID: c.ID, Status: "failed", Code: "HISTORICAL_BASELINE_REJECTED"})
+		}
+	}
+
 	if recovering && j.Phase == "deploying" {
 		o, err := a.driver.Observe(work, s)
-		image, e := preparedImage(work, s, c.Image)
+		image, e := deploymentImage(work, s, c.Image)
 		if err == nil && e == nil && o.Healthy && o.ImageID == image.ID && a.envMatches(c.ID, true) {
 			return finish(control.Result{ID: c.ID, Status: "succeeded", Code: "VERIFIED", Image: c.Image, Healthy: true})
 		}
@@ -97,7 +105,10 @@ func (a *Agent) handleEnvDeployment(ctx context.Context, e control.Envelope, c c
 			}
 		}
 		// Cache-only preparation precedes the journaled service mutation.
-		prepared := a.driver.Execute(work, s, control.Command{ID: c.ID, Action: "prepare-image", Image: c.Image, Platform: o.Platform})
+		prepared := control.Result{Status: "succeeded"}
+		if s.rollbackBaseline == nil {
+			prepared = a.driver.Execute(work, s, control.Command{ID: c.ID, Action: "prepare-image", Image: c.Image, Platform: o.Platform})
+		}
 		if prepared.Status != "succeeded" {
 			prepared.ID = c.ID
 			return finish(prepared)
