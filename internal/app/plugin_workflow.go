@@ -119,7 +119,7 @@ func installPluginWorkflows(c *Config, p PluginProviderConfig) error {
 			if err := validate(ctx, tx, plan); err != nil {
 				return plan, err
 			}
-			if err := (&Server{}).checkWorkflowScope(tx, Workflow{}, plan, true); err != nil {
+			if err := (&Server{cfg: *c}).checkWorkflowScope(tx, Workflow{}, plan, true); err != nil {
 				return plan, err
 			}
 			return plan, nil
@@ -132,8 +132,11 @@ func validatePluginWorkflow(p PluginProviderConfig, allowed map[string]bool, pla
 	if err := validWorkflowPlan(plan); err != nil {
 		return err
 	}
-	if len(plan.Targets) != len(p.Services) {
+	if !plan.CacheOnly && len(plan.Targets) != len(p.Services) {
 		return errors.New("plugin plan omitted authorized environment members")
+	}
+	if plan.CacheOnly && len(plan.Rollback) != 0 {
+		return errors.New("cache preparation cannot define recovery mutations")
 	}
 	scope := map[string]bool{}
 	for _, id := range p.Services {

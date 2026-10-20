@@ -1,8 +1,12 @@
 package app
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
+	"github.com/alpha2z/skygo-admin/internal/baseline"
 	"net"
 	"net/http"
 	"os"
@@ -169,5 +173,114 @@ func TestRuntimeWorkflowSnapshotAndPlannerScopeMySQL(t *testing.T) {
 	p.Workflows[0].Services = []string{"not-approved"}
 	if installPluginWorkflows(&Config{}, p) == nil {
 		t.Fatal("expanded local configuration accepted")
+	}
+}
+
+func TestPluginPreparationAllowsOnlyReadinessSubset(t *testing.T) {
+	p, plan, _ := pluginWorkflowFixture()
+	p.Services = append(p.Services, "unselected")
+	plan.CacheOnly = true
+	plan.Kind = "prepare"
+	cmd := &plan.Steps[0].Command
+	cmd.Action = "prepare-image"
+	cmd.Image = plan.Targets[0].Image
+	cmd.Platform = "linux/amd64"
+	plan.Steps[0].ImageID = plan.Targets[0].ImageID
+	allowed := map[string]bool{"prepare-image": true, "stop": true}
+	if err := validatePluginWorkflow(p, allowed, plan); err != nil {
+		t.Fatal(err)
+	}
+	plan.CacheOnly = false
+	if validatePluginWorkflow(p, allowed, plan) == nil {
+		t.Fatal("partial lifecycle scope accepted")
+	}
+	plan.CacheOnly = true
+	plan.Steps[0].Command.Action = "stop"
+	if validatePluginWorkflow(p, allowed, plan) == nil {
+		t.Fatal("mutation disguised as preparation")
+	}
+	plan.Steps[0].Command = *cmd
+	plan.Steps[0].Command.Action = "prepare-image"
+	plan.Rollback = append(plan.Rollback, plan.Steps[0])
+	if validatePluginWorkflow(p, allowed, plan) == nil {
+		t.Fatal("cache-only rollback accepted")
+	}
+}
+
+func TestRuntimePlannerUsesHistoricalTrustMySQL(t *testing.T) {
+	db, cfg := releaseDB(t)
+	p, plan, o := pluginWorkflowFixture()
+	cfg.HistoricalBaselinesDirectory = t.TempDir()
+	config := []byte(`{"os":"linux","architecture":"amd64"}`)
+	imageID := "sha256:" + control.Digest(config)
+	tag := "example/worker:historical"
+	manifest, _ := json.Marshal([]map[string]any{{"Config": "config.json", "RepoTags": []string{tag}, "Layers": []string{}}})
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	for _, entry := range []struct {
+		name string
+		raw  []byte
+	}{{"config.json", config}, {"manifest.json", manifest}} {
+		tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0600, Size: int64(len(entry.raw))})
+		tw.Write(entry.raw)
+	}
+	tw.Close()
+	r := baseline.Record{Version: 1, Host: "host", Service: "worker", Tag: tag, ImageID: imageID, ConfigID: imageID, Platform: "linux/amd64", ScopeRevision: o.ScopeRevision, ArchiveSHA256: control.Digest(archive.Bytes()), ArchiveSize: int64(archive.Len()), Operator: "fixture", Reason: "historical workflow regression", CreatedAt: time.Now().UTC()}
+	id, envelope, err := baseline.Sign(r, cfg.SigningKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(cfg.HistoricalBaselinesDirectory, r.ArchiveSHA256+".tar"), archive.Bytes(), 0600)
+	recordPath := filepath.Join(cfg.HistoricalBaselinesDirectory, id+".json")
+	os.WriteFile(recordPath, envelope, 0600)
+	plan.Targets[0].HistoricalBaselineID = id
+	plan.Targets[0].Image = tag
+	plan.Targets[0].ImageID = imageID
+	o.HistoricalBaselineID = id
+	o.ConfiguredImage = tag
+	o.ImageID = imageID
+	o.Capabilities = []string{"workflow.historical-baseline.v1"}
+	if err = db.Create(&ServiceRecord{ID: "worker", Definition: plan.Targets[0].Definition}).Error; err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal([]control.Observation{o})
+	if err = db.Create(&Host{ID: "host", Active: true, LastSeen: time.Now(), Observations: string(raw)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp("", "wf-baseline-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	p.Socket = filepath.Join(dir, "p.sock")
+	p.Workflows = []PluginWorkflowConfig{{Name: "example-flow", Permission: "ops.write", ApprovalPermission: "ops.approve", Services: []string{"worker"}, Actions: []string{"stop"}}}
+	listener, err := net.Listen("unix", p.Socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: plugin.Handler(p.Endpoint, func(ctx context.Context, request plugin.Request) (any, error) {
+		if request.Operation == "workflow-plan" {
+			return plan, nil
+		}
+		return nil, nil
+	})}
+	go server.Serve(listener)
+	defer server.Close()
+	if err = installPluginWorkflows(&cfg, p); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func() error {
+		_, e := cfg.Workflows["example-flow"].Resolve(context.Background(), db, "request-one", json.RawMessage(`{}`))
+		return e
+	}
+	if err = resolve(); err != nil {
+		t.Fatal("registered baseline failed through runtime plugin", err)
+	}
+	os.Remove(recordPath)
+	if resolve() == nil {
+		t.Fatal("revoked historical trust accepted")
+	}
+	if (&Server{cfg: Config{SigningKey: ed25519.PrivateKey{}}}).checkHistoricalBaselines(plan) == nil {
+		t.Fatal("missing signing identity accepted")
 	}
 }

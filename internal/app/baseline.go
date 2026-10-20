@@ -11,6 +11,9 @@ func (s *Server) checkHistoricalBaselines(p WorkflowPlan) error {
 		if t.HistoricalBaselineID == "" {
 			continue
 		}
+		if len(s.cfg.SigningKey) != ed25519.PrivateKeySize {
+			return errors.New("HISTORICAL_BASELINE_UNAVAILABLE")
+		}
 		r, err := baseline.Read(s.cfg.HistoricalBaselinesDirectory, t.HistoricalBaselineID, s.cfg.SigningKey.Public().(ed25519.PublicKey), true)
 		if err != nil || r.Host != t.Host || r.Service != t.Service || r.Tag != t.Image || r.ImageID != t.ImageID || r.ScopeRevision != t.ScopeRevision {
 			return errors.New("HISTORICAL_BASELINE_UNAVAILABLE")
